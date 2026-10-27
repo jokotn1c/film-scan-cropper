@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 import film_crop as fc
 from film_detect import detect_auto, analyze
-from film_io import read_image, detection_image, write_image, unique_output
+from film_io import read_image, detection_image, write_image, output_path
 
 
 @dataclass(frozen=True)
@@ -43,8 +43,26 @@ def _locate(image, fmt):
                 'bounds': [x / scale, (x+w-1) / scale, y / scale, (y+h-1) / scale],
                 'negative_hint': bool(negative), 'needs_review': True,
                 'review_reasons': ['用户指定画幅，请检查边界']}
-    ratio = fc.oriented_ratio(preview, fc.FORMATS[fmt], 'auto')
-    bounds = fc.detect_frame(preview, ratio)
+    # The sensor canvas can be square, or horizontal around a portrait frame.
+    # Evaluate both inner-frame orientations rather than inheriting the canvas.
+    long_ratio = max(fc.FORMATS[fmt], 1 / fc.FORMATS[fmt])
+    small, scale = fc.resize_for_detection(preview)
+    xp, yp = fc.edge_profiles(small)
+    choices = []
+    for ratio in sorted({long_ratio, 1 / long_ratio}):
+        try:
+            bounds = fc.detect_frame(preview, ratio)
+        except RuntimeError:
+            continue
+        x0,x1,y0,y1 = bounds
+        ix = np.clip(np.rint(np.array([x0,x1])*scale).astype(int),0,len(xp)-1)
+        iy = np.clip(np.rint(np.array([y0,y1])*scale).astype(int),0,len(yp)-1)
+        strengths = np.r_[xp[ix]/max(float(xp.max()),1), yp[iy]/max(float(yp.max()),1)]
+        quality = float(strengths.min() + strengths.mean())
+        choices.append((quality, ratio, bounds))
+    if not choices:
+        raise RuntimeError('未能定位指定画幅的边界')
+    _, ratio, bounds = max(choices, key=lambda item:item[0])
     x0, x1, y0, y1 = bounds
     return {'format': fmt, 'ratio': ratio, 'measured_ratio': (x1-x0)/(y1-y0),
             'bounds': list(bounds), 'needs_review': True,
@@ -124,8 +142,8 @@ def process_file(source, folder, options=Options()):
     detection = locate(image, options.format, options.auto_rotate)
     result = crop_pixels(image, detection, options)
     suffix = 'border' if options.keep_border else 'crop'
-    output = unique_output(folder, source, options.output_format, suffix)
-    write_image(output, result, options.output_format, metadata['source_type'] == 'RAW')
+    output = output_path(folder, source, options.output_format, suffix)
+    write_image(output, result, options.output_format, metadata['source_type'] == 'RAW', source=source)
     h, w = image.shape[:2]; oh, ow = result.shape[:2]
     record = {'source': str(source), 'output': str(output), **metadata, **detection,
               'source_width': w, 'source_height': h, 'output_width': ow,

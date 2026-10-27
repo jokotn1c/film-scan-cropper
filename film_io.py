@@ -63,9 +63,14 @@ def detection_image(image):
     return image
 
 
-def write_image(path, image, output_format='TIFF16', is_raw=False):
-    """Write via a temporary file; never overwrite an existing result or source."""
+def write_image(path, image, output_format='TIFF16', is_raw=False, *, source=None):
+    """Encode completely before atomically replacing a previous result."""
     path = Path(path)
+    if source is not None:
+        source = Path(source)
+        if (path.resolve() == source.resolve()
+                or (path.exists() and source.exists() and path.samefile(source))):
+            raise ValueError('输出文件不能与原始文件相同')
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name('.' + path.stem + '-' + uuid.uuid4().hex + '.tmp')
     try:
@@ -93,19 +98,12 @@ def write_image(path, image, output_format='TIFF16', is_raw=False):
                 encoded.tofile(temp)
         else:
             raise ValueError('未知输出格式：' + output_format)
-        # On Windows rename fails if destination exists: no accidental overwrite.
-        if path.exists(): raise FileExistsError(str(path))
-        temp.rename(path)
+        os.replace(temp, path)
     finally:
         if temp.exists(): temp.unlink()
 
 
-def unique_output(folder, source, output_format, suffix='crop'):
+def output_path(folder, source, output_format, suffix='crop'):
     extension = '.tif' if output_format == 'TIFF16' else '.jpg'
     stem = Path(source).stem + '_' + suffix
-    path = Path(folder) / (stem + extension)
-    index = 2
-    while path.exists():
-        path = Path(folder) / (stem + '_' + str(index) + extension)
-        index += 1
-    return path
+    return Path(folder) / (stem + extension)

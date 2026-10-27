@@ -22,6 +22,7 @@ class FilmApp:
     def __init__(self, root):
         self.root = root
         self.root.title('FilmCrop')
+        self.set_app_icon()
         self.root.geometry('900x620')
         self.root.minsize(800, 470)
         self.events = queue.Queue()
@@ -29,6 +30,9 @@ class FilmApp:
         self.running = False
         self.paths = {}
         self.outputs = {}
+        self.completed = {}
+        self.active_jobs = {}
+        self.batch_skipped = 0
         self.preview_photo = None
         self.output_dir = tk.StringVar()
         self.format = tk.StringVar(value='自动识别')
@@ -44,6 +48,15 @@ class FilmApp:
         self.fit_window(initial=True)
         self.root.protocol('WM_DELETE_WINDOW', self.close)
         self.root.after(100, self.poll)
+
+    def set_app_icon(self):
+        assets = Path(__file__).resolve().parent / 'assets'
+        with Image.open(assets / 'filmcrop.png') as image:
+            self.app_icon = ImageTk.PhotoImage(image.copy(), master=self.root)
+        self.root.iconphoto(True, self.app_icon)
+        if sys.platform == 'win32':
+            icon_path = '//?/' + str((assets / 'filmcrop.ico').resolve()).replace('\\', '/')
+            self.root.iconbitmap(icon_path)
 
     def _build(self):
         self.root.configure(bg='#f2f4f6')
@@ -220,17 +233,37 @@ class FilmApp:
     def remove(self):
         if self.running: return
         for iid in self.tree.selection():
-            self.paths.pop(iid, None); self.outputs.pop(iid, None); self.tree.delete(iid)
+            self.paths.pop(iid, None); self.outputs.pop(iid, None); self.completed.pop(iid, None); self.tree.delete(iid)
 
     def clear(self):
         if self.running: return
         self.tree.delete(*self.tree.get_children()); self.paths.clear(); self.outputs.clear()
+        self.completed.clear()
         self.preview.configure(image='', text='选中查看裁切结果'); self.preview_photo = None
         self.status.set('已清空文件列表。')
 
     def choose_output(self):
         path = filedialog.askdirectory(parent=self.root, title='选择输出文件夹')
         if path: self.output_dir.set(path)
+
+    def job_signature(self, source, folder, options):
+        # Changing settings, destination or source requires a fresh crop.
+        stat = source.stat()
+        return (source, stat.st_size, stat.st_mtime_ns, folder, options)
+
+    def pending_jobs(self, folder, options):
+        jobs = []; signatures = {}
+        for iid, source in self.paths.items():
+            try:
+                signature = self.job_signature(source, folder, options)
+            except OSError:
+                signature = None  # Let the worker report unreadable files.
+            record = self.outputs.get(iid, {})
+            if (signature is not None and self.completed.get(iid) == signature
+                    and record.get('output') and Path(record['output']).is_file()):
+                continue
+            jobs.append((iid, source)); signatures[iid] = signature
+        return jobs, signatures
 
     def start(self):
         if self.running: return
@@ -252,10 +285,16 @@ class FilmApp:
                               keep_border=self.keep.get(), auto_rotate=self.auto_rotate.get(), top_trim=top, bottom_trim=bottom, border_margin=margin, sprocket_side=side)
         except Exception as exc:
             messagebox.showerror('无法开始', str(exc), parent=self.root); return
-        self.running = True; self.stop.clear(); self.outputs.clear()
+        jobs, self.active_jobs = self.pending_jobs(folder, options)
+        self.batch_skipped = len(self.paths)-len(jobs)
+        if not jobs:
+            self.status.set(f'已跳过 {self.batch_skipped} 个已完成文件。')
+            return
+        self.running = True; self.stop.clear()
         self.set_busy(True)
-        jobs = list(self.paths.items())
-        for iid, source in jobs: self.tree.item(iid, values=(source.name, '待处理', '—'))
+        for iid, source in jobs:
+            self.outputs.pop(iid, None); self.completed.pop(iid, None)
+            self.tree.item(iid, values=(source.name, '待处理', '—'))
         self.progress.configure(value=0, maximum=len(jobs))
         threading.Thread(target=self.worker, args=(jobs, folder, options), daemon=True).start()
 
@@ -305,6 +344,7 @@ class FilmApp:
                 elif kind == 'result':
                     _, iid, record, index = event
                     self.outputs[iid] = record
+                    self.completed[iid] = self.active_jobs[iid]
                     state = '完成'
                     self.tree.item(iid, values=(self.paths[iid].name, state, record['format']))
                     self.progress.configure(value=index)
@@ -318,9 +358,10 @@ class FilmApp:
                     _, success, errors, remaining, report, report_error = event
                     self.running = False; self.set_busy(False)
                     if remaining:
-                        for iid in self.paths:
+                        for iid in self.active_jobs:
                             if iid not in self.outputs: self.tree.item(iid, values=(self.paths[iid].name, '已停止', '—'))
                     self.status.set(f'完成 {success} 个，失败 {errors} 个，未处理 {remaining} 个。' +
+                                    (f' 已跳过 {self.batch_skipped} 个已完成文件。' if self.batch_skipped else '') +
                                     ('' if not report_error else ' 报告写入失败：' + report_error))
                     if report_error: messagebox.showerror('报告写入失败', report_error, parent=self.root)
         except queue.Empty: pass

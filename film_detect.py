@@ -34,6 +34,8 @@ def analyze(im):
  # Search bright channels, requiring two regular rows with matching pitch.
  brightness=np.max(raw,axis=2)
  hole_box=None
+ strict_hole_geometry=False
+ negative_edge_evidence=False
  for threshold in [220,180,150,120]:
   found=[]
   cs,_=cv2.findContours((brightness>threshold).astype(np.uint8)*255,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
@@ -53,6 +55,15 @@ def analyze(im):
   hole_box=(round(cx-fw/2),round(cy-fh/2),round(fw),round(fh))
   boxes.add(hole_box)
   break
+ if hole_box is None:
+  from film_sprockets import paired_perforations
+  evidence=paired_perforations(raw)
+  if evidence:
+   hole_box=tuple(evidence['box'])
+   strict_hole_geometry=True
+   negative_edge_evidence=(evidence.get('clipped',False) or evidence.get('adaptive',False)
+                           or np.percentile(brightness,95)<120) and evidence['polarity']=='bright'
+   boxes.add(hole_box)
  # Rectangular projections cover fragmented scenes (dark monochrome, etc).
  xp,yp=f.edge_profiles(s);xs=f.nms_peaks(xp,16,12);ys=f.nms_peaks(yp,16,12)
  for x0,_ in xs:
@@ -68,6 +79,12 @@ def analyze(im):
   if err>.04:continue
   if hole_box is not None:
    if fm!='135' or cw<.9*hole_box[2] or ch<.9*hole_box[3] or cw>1.12*hole_box[2] or ch>1.12*hole_box[3]:continue
+   if strict_hole_geometry:
+    hx,hy,hw,hh=hole_box
+    # Hole pitch constrains size, but incomplete hole rows do not precisely
+    # locate the frame along the film strip. Across the strip it is reliable.
+    xtol,ytol=(.15,.05) if hw>hh else (.05,.15)
+    if abs((x+cw/2)-(hx+hw/2))>xtol*hw or abs((y+ch/2)-(hy+hh/2))>ytol*hh:continue
   # Robust median boundary strips skip corners, holes and frame lettering.
   k=4;ya,yb=y+int(ch*.15),y+int(ch*.85);xa,xb=x+int(cw*.15),x+int(cw*.85)
   vals=[]
@@ -80,8 +97,15 @@ def analyze(im):
    vals.append(float(np.median(inside))-float(np.median(outside)))
   outs=[g[ya:yb,x-2*k:x-k],g[ya:yb,x+cw+k:x+cw+2*k],g[y-2*k:y-k,xa:xb],g[y+ch+k:y+ch+2*k,xa:xb]]
   surround=sum(float(np.mean(a<30)) for a in outs)
-  edge=sum(np.sign(v)*np.sqrt(abs(v)/255) for v in vals)
-  score=edge-18*err+2.0*cw*ch/(w*h)+min(vals)/255+2*surround
+  # A monochrome negative can be darker than its unexposed film surround.
+  # Only reverse edge evidence after independent paired-hole geometry has
+  # constrained the frame; otherwise internal dark scene boxes can win.
+  signed_vals=[-v for v in vals] if negative_edge_evidence and np.median(vals)<-3 else vals
+  # Absolute blackness is exposure-dependent and becomes misleading on dim
+  # copies: a dark part of the picture must not count as a film border.
+  if negative_edge_evidence:surround=0
+  edge=sum(np.sign(v)*np.sqrt(abs(v)/255) for v in signed_vals)
+  score=edge-18*err+2.0*cw*ch/(w*h)+min(signed_vals)/255+2*surround
   result.append({'box':[x,y,cw,ch],'format':fm,'measured':cw/ch,'error':err,'score':score,'jumps':vals,'estimated':bool(hole_box is not None and (x,y,cw,ch)==hole_box)})
  result.sort(key=lambda v:v['score'],reverse=True)
  if result:

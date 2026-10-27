@@ -409,7 +409,7 @@ def process_one(
     output.parent.mkdir(parents=True, exist_ok=True)
     if output_format == 'auto':
         output_format = 'TIFF16' if output.suffix.lower() in {'.tif', '.tiff'} else 'JPEG'
-    write_image(output, result, output_format, metadata['source_type'] == 'RAW')
+    write_image(output, result, output_format, metadata['source_type'] == 'RAW', source=path)
     print(f"{path.name} -> {output}  ({result.shape[1]}x{result.shape[0]})")
 
 
@@ -436,7 +436,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.keep_border and args.keep_sprockets:
         parser.error('choose --keep-border or --keep-sprockets')
-    from film_io import RAW_EXTENSIONS, SUPPORTED_EXTENSIONS, unique_output
+    from film_io import RAW_EXTENSIONS, SUPPORTED_EXTENSIONS, output_path
     def export_format(path):
         if args.output_format != 'auto': return args.output_format
         return 'TIFF16' if path.suffix.lower() in RAW_EXTENSIONS else 'JPEG'
@@ -453,7 +453,7 @@ def main() -> None:
         parser.error("ratio must be positive")
     if args.input.is_file():
         fmt = export_format(args.input)
-        output = args.output or unique_output(args.input.parent, args.input, fmt, args.format)
+        output = args.output or output_path(args.input.parent, args.input, fmt, args.format)
         if args.output and args.output_format == 'auto':
             fmt = 'TIFF16' if output.suffix.lower() in {'.tif', '.tiff'} else 'JPEG'
         process_one(args.input, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border, not args.no_auto_rotate)
@@ -465,7 +465,7 @@ def main() -> None:
         for path in files:
             try:
                 fmt = export_format(path)
-                output = unique_output(out_dir, path, fmt, args.format)
+                output = output_path(out_dir, path, fmt, args.format)
                 process_one(path, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border)
             except Exception as exc:
                 print(f"SKIP {path.name}: {exc}")

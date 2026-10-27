@@ -52,6 +52,11 @@ def _hole_angle(s):
 def estimate_rotation(preview):
     s,_ = resize_for_detection(preview,1200)
     holes = _hole_angle(s)
+    if holes is None:
+        from film_sprockets import paired_perforations
+        evidence = paired_perforations(s)
+        if evidence and evidence.get('angle_reliable', True):
+            holes = evidence['angle'], 'paired_sprockets'
     if holes:
         angle,method = holes
         return dict(angle=angle, method=method, confident=abs(angle)<=MAX_ROLL)

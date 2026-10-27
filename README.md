@@ -31,15 +31,15 @@ python film_crop.py input.ARW --format auto --keep-border --output result.tif
 - Windows：安装构建依赖后运行 build_exe.ps1。
 - macOS Apple Silicon：运行 build_macos_arm64.sh，或在 GitHub Actions 手动运行 Build macOS Apple Silicon，从成功运行的 Artifacts 下载产物。
 
-macOS 应用需要在 macOS ARM 环境构建。构建成功不等于完成 Mac 实机测试。
 
 ## 图像处理
 
 - RAW 兼容性取决于 LibRaw 支持的相机型号和压缩方式。
-- 使用相机白平衡；不读取 Lightroom / ACR 调整。
+- 使用相机白平衡
 - 转正根据胶片边框或齿孔判断小角度倾斜；边界不清或明显透视时需检查结果。
 - 16 位 TIFF 保存解码后的 RGB；8 位照片转换为 16 位不会增加原有细节。
-- 输出使用新文件名，保留原始文件。
+- 输出添加裁切后缀，保留原始文件；同名裁切结果自动覆盖。
+- 新增文件后再次开始，会跳过当前列表中已按相同设置完成的项目；更换输出位置或裁切设置后重新处理。
 
 ## 隐私
 
