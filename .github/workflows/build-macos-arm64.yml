@@ -1,0 +1,28 @@
+name: Build macOS Apple Silicon
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: arm64
+
+      - name: Verify Apple Silicon
+        run: python -c "import platform; assert platform.machine() == 'arm64'"
+
+      - name: Build app
+        run: bash build_macos_arm64.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FilmCrop-RAW-mac-arm64
+          path: |
+            dist-macos-arm64/FilmCrop-RAW-mac-arm64.zip
+            dist-macos-arm64/FilmCrop-RAW-mac-arm64.sha256
