@@ -1,0 +1,6 @@
+numpy>=1.24
+opencv-python>=4.8
+rawpy>=0.26
+Pillow>=11
+tifffile>=2025.1
+tkinterdnd2>=0.4
