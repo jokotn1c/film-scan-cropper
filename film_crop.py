@@ -2,8 +2,8 @@
 """Detect and crop camera-copied film frames.
 
 Examples:
-  python film_crop.py input.jpg --format 135 --output out.jpg
-  python film_crop.py scans --format 66 --output-dir cropped
+  python film_crop.py input.jpg --format 135/6x9 --output out.jpg
+  python film_crop.py scans --format 6x6 --output-dir cropped
   python film_crop.py input.jpg --corners 289,242 1570,242 1570,1097 289,1097
 
 The automatic detector is deliberately conservative. It estimates the inner
@@ -24,19 +24,20 @@ import numpy as np
 
 
 FORMATS = {
-    "135": 36 / 24,       # 1.5000
-    "645": 56 / 41.5,     # approximately 1.3494
-    "66": 1.0,
-    "67": 56 / 69,        # approximately 0.8116
-    "half": 18 / 24,      # half-frame 18x24 mm
+    "135/6x9": 36 / 24,       # 1.5000
+    "6x4.5/半格": 56 / 41.5,  # shared medium-format / half-frame crop family
+    "6x6": 1.0,
+    "6x7": 56 / 69,        # approximately 0.8116
     # 6x9 and 135 are treated as the same 3:2 crop family. The small
     # nominal difference between 56x84 and 36x24 is below reliable detection
     # precision in these camera copies.
-    "65:24": 65 / 24,     # Hasselblad XPan
-    "56:24": 56 / 24,     # medium-format panoramic 135 back
+    "6.5x2.4": 65 / 24,     # Hasselblad XPan
+    "5.6x2.4": 56 / 24,     # medium-format panoramic 135 back
 }
 
-PANORAMIC_FORMATS = {'65:24', '56:24'}
+PANORAMIC_FORMATS = {'6.5x2.4', '5.6x2.4'}
+FORMAT_LABELS = {key: ('XPan ' + key if key == '6.5x2.4' else key) for key in FORMATS}
+FORMAT_CHOICES = {'自动识别': 'auto', **{label: key for key, label in FORMAT_LABELS.items()}}
 
 # User's reference look for a 135 frame with both perforation bands retained.
 # This is the full-strip presentation ratio, width:height = 6:5.5.
@@ -304,7 +305,7 @@ def expand_for_sprockets(
     layouts and are intentionally conservative. Users can override them with
     ``--sprocket-margin`` when their mask or holder has a different border.
     """
-    if fmt != "135":
+    if fmt != "135/6x9":
         raise ValueError("--keep-sprockets is currently supported for 135 only")
     p = np.asarray(order_corners(corners), dtype=np.float32)
     tl, tr, br, bl = p
@@ -423,7 +424,7 @@ def process_one(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Automatically crop camera-copied film frames")
     parser.add_argument("input", type=Path, help="an image file or a folder")
-    parser.add_argument("--format", choices=["auto"]+sorted(FORMATS), default="135", help="film frame format; auto infers from the inner picture")
+    parser.add_argument("--format", choices=["auto"]+sorted(FORMATS), default="135/6x9", help="film frame format; auto infers from the inner picture")
     parser.add_argument("--ratio", type=float, help="custom width/height ratio; overrides --format")
     parser.add_argument("--orientation", choices=["auto", "landscape", "portrait"], default="auto", help="frame orientation; auto follows input orientation")
     parser.add_argument("--output", type=Path, help="output file for a single input")

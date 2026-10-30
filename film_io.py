@@ -105,5 +105,5 @@ def write_image(path, image, output_format='TIFF16', is_raw=False, *, source=Non
 
 def output_path(folder, source, output_format, suffix='crop'):
     extension = '.tif' if output_format == 'TIFF16' else '.jpg'
-    stem = Path(source).stem + '_' + suffix.replace(':','x')
+    stem = Path(source).stem + '_' + suffix.replace(':','x').replace('/','_').replace('\\','_')
     return Path(folder) / (stem + extension)

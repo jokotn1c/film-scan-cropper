@@ -10,7 +10,9 @@
 
 默认自动识别画幅、开启自动转正，导出 16 位 TIFF。可切换 JPEG，或保留 135 齿孔、120 边框。“微调”可调整上下边缘及留边。
 
-画幅预设：135 / 6×9（统一按 3:2）、半格 18×24（3:4）、645、66、67、XPan（65:24）、中画幅宽幅 135 后背（56:24）。支持自动识别与手动指定，横竖方向自动判断。135 / 6×9 保留齿孔时目标比例为 6:5.5；两种宽幅按 35 mm 胶片的物理高度保留齿孔。
+画幅预设：135/6x9（统一按 3:2）、6x4.5/半格（统一按 56:41.5）、6x6、6x7、XPan（6.5x2.4）、中画幅宽幅 135 后背（5.6x2.4）。支持自动识别与手动指定，横竖方向自动判断。半格与6x4.5使用相同检测、裁切和留边逻辑。135/6x9 保留齿孔时目标比例为 6:5.5；两种宽幅按 35 mm 胶片的物理高度保留齿孔。
+
+画幅尺寸名称统一使用厘米及小写 x；实际裁切仍采用对应的有效画面比例。
 
 ## 从源码运行
 
@@ -24,9 +26,9 @@ python film_gui.py
 ```shell
 python film_crop.py input.jpg --format auto --output result.jpg
 python film_crop.py input.ARW --format auto --keep-border --output result.tif
-python film_crop.py input.jpg --format 65:24 --output xpan.jpg
-python film_crop.py input.jpg --format 56:24 --output panorama.jpg
-python film_crop.py input.jpg --format half --output half.jpg
+python film_crop.py input.jpg --format 6.5x2.4 --output xpan.jpg
+python film_crop.py input.jpg --format 5.6x2.4 --output panorama.jpg
+python film_crop.py input.jpg --format "6x4.5/半格" --output half.jpg
 ```
 
 ## 构建

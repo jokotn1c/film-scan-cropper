@@ -9,6 +9,7 @@ on:
       - 'requirements*.txt'
       - 'FilmCrop-RAW-mac-arm64.spec'
       - 'build_macos_arm64.sh'
+      - 'check_macos_startup.py'
       - 'assets/**'
       - '.github/workflows/build-macos-arm64.yml'
 
@@ -29,9 +30,13 @@ jobs:
       - name: Build app
         run: bash build_macos_arm64.sh
 
+      - name: Check packaged app startup
+        run: python check_macos_startup.py
+
       - uses: actions/upload-artifact@v4
         with:
           name: FilmCrop-RAW-1.9-mac-arm64
           path: |
             dist-macos-arm64/FilmCrop-RAW-*-mac-arm64.zip
             dist-macos-arm64/FilmCrop-RAW-*-mac-arm64.sha256
+            dist-macos-arm64/startup-check.json

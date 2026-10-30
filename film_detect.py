@@ -18,7 +18,29 @@ def prepare(im):
   im=(v*255).astype(np.uint8)
  return im,neg
 
-def strip_frame(image, requested_format=None):
+def strip_frame(image, requested_format=None, incomplete=False):
+ """Search from either end of the strip, including asymmetric table edges."""
+ found=[];uncertain=None
+ h,w=image.shape[:2]
+ for reverse in (False,True):
+  source=np.ascontiguousarray(image[::-1,::-1]) if reverse else image
+  candidate=_strip_frame_once(source,requested_format,incomplete)
+  if candidate is None:continue
+  if candidate.get('requires_format'):
+   uncertain=candidate;continue
+  if reverse:
+   candidate=dict(candidate)
+   x,y,cw,ch=candidate['box']
+   candidate['box']=[w-x-cw,h-y-ch,cw,ch]
+   j=candidate['jumps'];candidate['jumps']=[j[1],j[0],j[3],j[2]]
+  found.append(candidate)
+ # Shared film sides must enclose the full picture across the strip. When
+ # both directions agree on the gaps, prefer that complete transverse span.
+ return max(found,key=lambda q:q['box'][3-q['strip_axis']] /
+            (h if q['strip_axis']==0 else w)) if found else uncertain
+
+
+def _strip_frame_once(image, requested_format=None, incomplete=False):
  """Locate a complete central frame bracketed by two dark film gaps.
 
  High percentiles require the gaps to stay dark along most of their length;
@@ -30,58 +52,101 @@ def strip_frame(image, requested_format=None):
  for transpose in (False,True):
   g=gray.T if transpose else gray
   h,w=g.shape
-  profile=np.percentile(g[int(.15*h):int(.85*h)],85,axis=0)
-  floor=float(np.percentile(profile,5))
-  dynamic=float(np.percentile(profile,95)-floor)
-  threshold=floor+max(3.,.045*dynamic)
-  mask=profile<threshold
-  changes=np.diff(np.r_[False,mask,False].astype(np.int8))
-  bands=[(int(a),int(b)) for a,b in zip(np.where(changes==1)[0],np.where(changes==-1)[0])
-         if .008*w<=b-a<=.08*w and a>.03*w and b<.97*w]
-  left=[q for q in bands if q[1]<.5*w]
-  right=[q for q in bands if q[0]>.5*w]
-  if not left or not right:continue
-  a,x0=max(left,key=lambda q:q[1]);x1,b=min(right,key=lambda q:q[0])
+  for percentile in (85,95):
+   profile=np.percentile(g[int(.15*h):int(.85*h)],percentile,axis=0)
+   floor=float(np.percentile(profile,5))
+   dynamic=float(np.percentile(profile,95)-floor)
+   threshold=floor+max(3.,.045*dynamic)
+   mask=profile<threshold
+   changes=np.diff(np.r_[False,mask,False].astype(np.int8))
+   bands=[(int(a),int(b)) for a,b in zip(np.where(changes==1)[0],np.where(changes==-1)[0])
+          if .008*w<=b-a<=.08*w and a>.03*w and b<.97*w]
+   left=[q for q in bands if q[1]<.5*w]
+   right=[q for q in bands if q[0]>.5*w]
+   for (a,x0) in left:
+    for (x1,b) in right:
+     for local in (False,True):
+      candidate=_strip_candidate(g,profile,dynamic,threshold,a,x0,x1,b,transpose,requested_format,local)
+      if candidate:found.append(candidate)
+   if incomplete:
+    for a,x0 in left:
+     if not .25*w<x0<.48*w:continue
+     # The far gap disappears into a dark scene or the blank end of film.
+     # Use only a verified near gap and shared film sides; automatic mode
+     # reports this evidence so the GUI asks for a ratio after the batch.
+     row=np.percentile(g[:,int(.15*w):int(.85*w)],85,axis=1).astype(np.float32)
+     row=cv2.GaussianBlur(row.reshape(-1,1),(1,0),1.2).ravel()
+     delta=row[6:]-row[:-6]
+     top=int(np.argmax(delta[:int(.08*h)]))+3
+     bottom=int(np.argmin(delta[int(.88*h):int(.95*h)]))+int(.88*h)+3
+     fh=bottom-top
+     tail=g[top:bottom,x0+int(.55*fh):min(w,x0+int(.8*fh))]
+     if (fh<.8*h or min(delta[top-3],-delta[bottom-3])<20 or
+         tail.size==0 or np.mean(tail<30)<.7 or
+         np.percentile(profile[x0:x0+int(.4*fh)],90)<60):continue
+     if requested_format is None:
+      return {'requires_format':True}
+     r=f.FORMATS[requested_format];fw=round(fh*min(r,1/r))
+     if not x0<w*.5<x0+fw or x0+fw>.98*w:continue
+     box=[top,x0,fh,fw] if transpose else [x0,top,fw,fh]
+     found.append(dict(box=box,format=requested_format,measured=box[2]/box[3],error=0.,score=12.,jumps=[0.]*4,
+                       estimated_dark=True,strip_axis=1 if transpose else 0))
+ return min(found,key=lambda q:q['error']) if found else None
+
+
+def _strip_candidate(g,profile,dynamic,threshold,a,x0,x1,b,transpose,requested_format,local=False):
+  h,w=g.shape
   fw=x1-x0
-  if not .3*w<fw<.85*w:continue
+  if not .3*w<fw<.85*w:return None
   step=max(4,int(.025*w))
   # Both gaps must separate pictures, not just surround one photograph.
   if min(float(np.median(profile[max(0,a-2*step):a-step])),
-         float(np.median(profile[b+step:min(w,b+2*step)])))<threshold+max(5.,.065*dynamic):continue
-  row=np.percentile(g[:,x0+int(.12*fw):x1-int(.12*fw)],75,axis=1).astype(np.float32)
+         float(np.median(profile[b+step:min(w,b+2*step)])))<threshold+max(3.,.02*dynamic):return None
+  # Estimate the shared strip sides using neighboring pictures as well.
+  # A shadow confined to the central scene then cannot masquerade as a side.
+  columns=g[:,x0+int(.12*fw):x1-int(.12*fw)] if local else g[:,int(.15*w):int(.85*w)]
+  row=np.percentile(columns,75 if local else 85,axis=1).astype(np.float32)
   row=cv2.GaussianBlur(row.reshape(-1,1),(1,0),1.2).ravel()
   jump=row[6:]-row[:-6]
-  top=int(np.argmax(jump[:int(.25*h)]))+3
-  lo=int(.75*h)
-  bottom=int(np.argmin(jump[lo:]))+lo+3
-  if min(float(jump[top-3]),float(-jump[bottom-3]))<15:continue
+  # Across a film strip, the inner sides lie near the outside of the copy.
+  # Confining these two searches prevents scene horizontals from shortening
+  # a frame merely to match a convenient preset ratio.
+  rises=f.nms_peaks(jump[:int(.15*h)],12,4)
+  if not rises:return None
+  strong=[i for i,v in rises if v>max(10,rises[0][1]*.25)]
+  if not strong:return None
+  top=(rises[0][0] if row[0]>.75*np.percentile(row,95) else min(strong))+3
+  lo=int(.88*h);hi=min(len(jump),int(.995*h))
+  table_lo=int(.95*h)
+  table_rise=int(np.argmax(jump[table_lo:]))+table_lo+3
+  if jump[table_rise-3]>max(25.,.12*dynamic):
+   lo=max(lo,round(table_rise-.07*h))
+   hi=min(hi,round(table_rise-.02*h))
+  if lo>=hi:return None
+  bottom=int(np.argmin(jump[lo:hi]))+lo+3
+  if top<.01*h or bottom>.99*h:return None
+  if min(float(jump[top-3]),float(-jump[bottom-3]))<10:return None
   fh=bottom-top
-  if fh<.5*h:continue
+  if not .85*h<fh<.94*h:return None
   measured=fw/fh
-  # Broad inter-frame gaps without perforations indicate medium-format
-  # strip geometry.  Avoid letting the almost identical half-frame ratio
-  # displace 645 in this specific case.
   formats={k:r for k,r in f.FORMATS.items() if k not in f.PANORAMIC_FORMATS}
-  medium_gap=min(x0-a,b-x1)>.035*min(fw,fh)
-  if medium_gap and requested_format!='half':formats.pop('half',None)
   aspect=max(measured,1/measured)
   fmt=requested_format or min(formats,key=lambda k:abs(math.log(max(formats[k],1/formats[k])/aspect)))
-  if fmt not in formats:continue
+  if fmt not in formats:return None
   error=abs(math.log(max(formats[fmt],1/formats[fmt])/aspect))
-  if error>.035:continue
+  if error>.035:return None
   box=[top,x0,fh,fw] if transpose else [x0,top,fw,fh]
   k=4
   jump_left=float(np.median(g[top+int(.15*fh):bottom-int(.15*fh),x0+k:x0+2*k])-
                   np.median(g[top+int(.15*fh):bottom-int(.15*fh),x0-2*k:x0-k]))
   jump_right=float(np.median(g[top+int(.15*fh):bottom-int(.15*fh),x1-2*k:x1-k])-
                    np.median(g[top+int(.15*fh):bottom-int(.15*fh),x1+k:x1+2*k]))
+  if min(jump_left,jump_right)<-3 or jump_left+jump_right<4:return None
   jumps=[jump_left,jump_right,float(jump[top-3]),float(-jump[bottom-3])]
   if transpose:jumps=jumps[2:]+jumps[:2]
-  found.append(dict(box=box,format=fmt,measured=box[2]/box[3],error=error,
+  return dict(box=box,format=fmt,measured=box[2]/box[3],error=error,
                     score=12.-18*error,jumps=jumps,strip_frame=True,
-                    strip_axis=1 if transpose else 0,
-                    ambiguous_format=bool(medium_gap and fmt=='645')))
- return min(found,key=lambda q:q['error']) if found else None
+                    strip_axis=1 if transpose else 0)
 
 def analyze(im, requested_format=None):
  s,sc=f.resize_for_detection(im,1200);s,neg=prepare(s);h,w=s.shape[:2];g=cv2.cvtColor(s,cv2.COLOR_BGR2GRAY);g=cv2.GaussianBlur(g,(0,0),1)
@@ -143,7 +208,7 @@ def analyze(im, requested_format=None):
   r=max(cw,ch)/min(cw,ch);fm=min(f.FORMATS,key=lambda k:abs(math.log(max(f.FORMATS[k],1/f.FORMATS[k])/r)));err=abs(math.log(max(f.FORMATS[fm],1/f.FORMATS[fm])/r))
   if err>.04:continue
   if hole_box is not None:
-   if fm not in {'135',*f.PANORAMIC_FORMATS}:continue
+   if fm not in {'135/6x9',*f.PANORAMIC_FORMATS}:continue
    hx,hy,hw,hh=hole_box
    factor=f.FORMATS[fm]/1.5
    expected_w,expected_h=(hw*factor,hh) if hw>hh else (hw,hh*factor)
@@ -204,11 +269,30 @@ def analyze(im, requested_format=None):
    axis=strip['strip_axis'];start=strip['box'][axis];length=strip['box'][axis+2]
    oldstart=result[0]['box'][axis];oldlength=result[0]['box'][axis+2]
    spans_gap=(oldstart<start-.08*length or oldstart+oldlength>start+1.08*length)
+   across=1-axis
+   side_start=strip['box'][across];side_length=strip['box'][across+2]
+   old_side=result[0]['box'][across];old_size=result[0]['box'][across+2]
+   # A scene shadow may shorten the box across the film even when its two
+   # inter-frame boundaries agree. Shared film sides recover that lost edge.
+   clipped_side=(abs(oldstart-start)<.03*length and abs(oldlength-length)<.03*length
+                 and side_start<=old_side+.02*side_length
+                 and side_start+side_length>=old_side+old_size-.02*side_length
+                 and side_length>1.05*old_size)
    crossed_orientation=(result[0]['measured']>=1)!=(strip['measured']>=1)
-   if (result[0]['format']=='66' or
-       (spans_gap and crossed_orientation) or
+   if (result[0]['format']=='6x6' or
+       crossed_orientation or
+       (clipped_side and strip['score']>result[0]['score']) or
+       (spans_gap and strip['error']<.015) or
+       (spans_gap and strip['score']>result[0]['score']) or
        (requested_format==strip['format'] and spans_gap)):
     result.insert(0,strip)
+  if strip is None:
+   missing=strip_frame(s,requested_format,incomplete=True)
+   if missing is not None:
+    from film_darkframe import FormatRequired
+    if missing.get('requires_format'):
+     raise FormatRequired('低亮度画面与片间隙融合，请指定画幅后推算完整画面。')
+    result.insert(0,missing)
  # When most of a square frame merges into its black surround, internal
  # scene rectangles have no four independent boundaries. Use separately
  # verified light-table and visible-picture evidence instead.
@@ -239,7 +323,6 @@ def detect_auto(image):
     if best.get('estimated_dark'): reasons.append('dark square frame boundary estimated from film strip')
     if best.get('estimated'): reasons.append('boundary estimated from sprocket spacing')
     if best.get('ambiguous'): reasons.append('enclosing frame selected over scene edge')
-    if best.get('ambiguous_format'): reasons.append('645/half-frame geometry is close; check format')
     if alternative and not best.get('estimated_dark') and best['score']-alternative['score']<.6:
         reasons.append('competing format: '+alternative['format'])
     if best['error']>.025: reasons.append('measured ratio differs from preset by over 2.5%')

@@ -8,10 +8,10 @@ class FormatRequired(RuntimeError):
 
 
 def dark_square_frame(image):
-    """Compatibility helper used by older diagnostics; explicit 66 only."""
+    """Compatibility helper used by older diagnostics; explicit 6x6 only."""
     candidate = dark_frame(image, 1.0)
     if candidate:
-        candidate['format'] = '66'
+        candidate['format'] = '6x6'
     return candidate
 
 

@@ -26,17 +26,16 @@ def _locate(image, fmt):
     if fmt == 'auto':
         detection = detect_auto(preview)
         translations = {
-            'dark square frame boundary estimated from film strip': '暗部内框不可见，按底片外缘与可见画面估算66边界',
+            'dark square frame boundary estimated from film strip': '暗部内框不可见，按底片外缘与可见画面估算6x6边界',
             'boundary estimated from sprocket spacing': '按齿孔间距估算边界',
             'enclosing frame selected over scene edge': '画面内框与场景直线存在歧义',
-            '645/half-frame geometry is close; check format': '已按645裁切；与半格比例接近，请核对画幅',
             'one or more frame edges have low contrast': '部分边界对比度低',
             'measured ratio differs from preset by over 2.5%': '检测比例偏离预设超过 2.5%',
         }
         detection['review_reasons'] = [translations.get(s, s.replace('competing format: ', '候选画幅接近：')) for s in detection['review_reasons']]
         return detection
     candidates, scale, negative = analyze(preview,fmt)
-    # A portrait preset such as 67/69 has a reciprocal landscape form. The
+    # Each preset has a reciprocal landscape/portrait form. The
     # detector stores the measured orientation, so do not accept a candidate
     # merely because its label was rounded to the same long-side ratio.
     target_ratios = {fc.FORMATS[fmt], 1 / fc.FORMATS[fmt]}
@@ -69,28 +68,8 @@ def _locate(image, fmt):
         quality = float(strengths.min() + strengths.mean())
         choices.append((quality, ratio, bounds))
     if not choices:
-        # Half-frame is often photographed as a small 18x24 window inside a
-        # larger dark canvas. Use the source aspect and the explicit ratio to
-        # form a centered fallback when edge peaks are too weak.
-        if fmt == 'half':
-            h,w=preview.shape[:2]; ratio=fc.FORMATS[fmt] if w>=h else 1/fc.FORMATS[fmt]
-            side=min(w*.86,h*.86); fw=side if ratio>=1 else side*ratio; fh=side/ratio if ratio>=1 else side
-            bounds=[(w-fw)/2,(w+fw)/2,(h-fh)/2,(h+fh)/2]
-            return {'format':fmt,'ratio':ratio,'measured_ratio':ratio,'bounds':bounds,
-                    'needs_review':True,'review_reasons':['半格画幅按指定比例估算边界'],'negative_hint':bool(negative)}
         raise RuntimeError('未能定位指定画幅的边界')
     _, ratio, bounds = max(choices, key=lambda item:item[0])
-    # With a square or heavily obscured canvas, edge strength alone cannot
-    # determine the orientation. Preserve the normal image orientation for
-    # manual selection, while keeping portrait presets portrait on a portrait
-    # source and landscape presets landscape on a landscape source.
-    if abs(ratio-1) > .01:
-        source_landscape = preview.shape[1] >= preview.shape[0]
-        requested_landscape = fc.FORMATS[fmt] >= 1
-        wanted = max(fc.FORMATS[fmt], 1/fc.FORMATS[fmt]) if source_landscape == requested_landscape else min(fc.FORMATS[fmt], 1/fc.FORMATS[fmt])
-        choice = next((item for item in choices if abs(item[1]-wanted) < .001), None)
-        if choice is not None:
-            _, ratio, bounds = choice
     x0, x1, y0, y1 = bounds
     return {'format': fmt, 'ratio': ratio, 'measured_ratio': (x1-x0)/(y1-y0),
             'bounds': list(bounds), 'needs_review': True,
@@ -130,14 +109,14 @@ def border_corners(corners, shape, fmt, ratio, margin=.025, sprocket_side=.035):
         across=(35/24-1)/2
         margins=((across,sprocket_side,across,sprocket_side) if ratio>=1
                  else (sprocket_side,across,sprocket_side,across))
-        expanded=fc.expand_for_sprockets(corners,shape,'135',margins,clip=False)
+        expanded=fc.expand_for_sprockets(corners,shape,'135/6x9',margins,clip=False)
         target=fc.FORMATS[fmt]*(1+2*sprocket_side)/(35/24)
         if ratio<1:target=1/target
         return fit_inside(np.asarray(expanded),np.mean(corners,axis=0),shape),target
-    if fmt == '135':
+    if fmt == '135/6x9':
         # Perforations lie along the long sides of the 36x24 picture.
         margins = fc.sprocket_margins(ratio, sprocket_side)
-        expanded = fc.expand_for_sprockets(corners, shape, '135', margins, clip=False)
+        expanded = fc.expand_for_sprockets(corners, shape, '135/6x9', margins, clip=False)
         return fit_inside(np.asarray(expanded), np.mean(corners,axis=0), shape), (
             fc.SPROCKET_RATIO_135 if ratio >= 1 else 1 / fc.SPROCKET_RATIO_135)
     # Expand in the frame coordinate system, retaining the corrected roll.

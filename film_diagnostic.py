@@ -5,6 +5,25 @@ from pathlib import Path
 import traceback
 
 
+def startup_test(root, report):
+    """Report a live packaged window and its process tree, then close it."""
+    import os
+    import sys
+    import subprocess
+    def capture():
+        try:
+            processes = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,comm='], text=True)
+            result = dict(pid=os.getpid(), executable=sys.executable,
+                          bundle_resources=getattr(sys, '_MEIPASS', ''),
+                          window_visible=bool(root.winfo_viewable()),
+                          title=root.title(), processes=processes)
+        except Exception:
+            result = {'error': traceback.format_exc()}
+        Path(report).write_text(json.dumps(result, indent=2), encoding='utf8')
+        root.after(100, root.destroy)
+    root.after(500, capture)
+
+
 def main(argv=None):
     from film_engine import Options, process_file
     parser = argparse.ArgumentParser()

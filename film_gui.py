@@ -19,6 +19,7 @@ from PIL import Image, ImageTk
 from film_engine import Options, process_file
 from film_io import SUPPORTED_EXTENSIONS
 from film_version import VERSION
+from film_crop import FORMAT_LABELS, FORMAT_CHOICES
 
 
 class FilmApp:
@@ -55,6 +56,10 @@ class FilmApp:
         self.root.after(100, self.poll)
 
     def set_app_icon(self):
+        # Cocoa gets the Dock/application icon from the application bundle's
+        # Info.plist. Tk's iconphoto replaces it with the window's PNG.
+        if sys.platform == 'darwin':
+            return
         assets = Path(__file__).resolve().parent / 'assets'
         with Image.open(assets / 'filmcrop.png') as image:
             self.app_icon = ImageTk.PhotoImage(image.copy(), master=self.root)
@@ -97,7 +102,7 @@ class FilmApp:
         listing = ttk.Frame(middle)
         listing.pack(side='left', fill='both', expand=True)
         self.tree = ttk.Treeview(listing, columns=('name', 'state', 'format'), show='headings', selectmode='extended')
-        for key, title, width in [('name', '文件', 280), ('state', '状态', 100), ('format', '画幅', 65)]:
+        for key, title, width in [('name', '文件', 280), ('state', '状态', 100), ('format', '画幅', 100)]:
             self.tree.heading(key, text=title)
             self.tree.column(key, width=width, minwidth=60)
         scroll = ttk.Scrollbar(listing, orient='vertical', command=self.tree.yview)
@@ -124,7 +129,7 @@ class FilmApp:
         options.grid(row=4, column=0, sticky='ew', pady=(0, 8))
         ttk.Label(options, text='画幅').pack(side='left')
         self.format_combo = ttk.Combobox(options, textvariable=self.format,
-                                        values=['自动识别', '135 / 6×9', '半格 18×24', '645', '66', '67', 'XPan 65:24', '56:24'], width=13, state='readonly')
+                                        values=list(FORMAT_CHOICES), width=13, state='readonly')
         self.format_combo.pack(side='left', padx=(6, 14))
         ttk.Label(options, text='导出').pack(side='left')
         self.export_combo = ttk.Combobox(options, textvariable=self.export,
@@ -288,7 +293,7 @@ class FilmApp:
             if not 0 <= side <= .1: raise ValueError('135 两侧留边范围为 0 至 10%。')
             if not 0 <= top < .1 or not 0 <= bottom < .1: raise ValueError('上下收边范围为 0 至小于 10%。')
             if not 0 <= margin <= .1: raise ValueError('120 边框扩展范围为 0 至 10%。')
-            options = Options(format={'自动识别':'auto', '135 / 6×9':'135', '半格 18×24':'half', 'XPan 65:24':'65:24'}.get(self.format.get(),self.format.get()),
+            options = Options(format=FORMAT_CHOICES[self.format.get()],
                               output_format='TIFF16' if self.export.get() == '16 位 TIFF' else 'JPEG',
                               keep_border=self.keep.get(), auto_rotate=self.auto_rotate.get(), top_trim=top, bottom_trim=bottom, border_margin=margin, sprocket_side=side)
         except Exception as exc:
@@ -359,7 +364,7 @@ class FilmApp:
                     self.outputs[iid] = record
                     self.completed[iid] = self.active_jobs[iid]
                     state = '完成'
-                    self.tree.item(iid, values=(self.paths[iid].name, state, record['format']))
+                    self.tree.item(iid, values=(self.paths[iid].name, state, FORMAT_LABELS[record['format']]))
                     self.progress.configure(value=index)
                     self.tree.selection_set(iid)
                 elif kind == 'error':
@@ -392,10 +397,10 @@ class FilmApp:
             ttk.Label(row,text=self.paths[iid].name,width=38).pack(side='left')
             value=tk.StringVar(value='请选择')
             ttk.Combobox(row,textvariable=value,state='readonly',width=13,
-                         values=['135 / 6×9','半格 18×24','645','66','67','XPan 65:24','56:24']).pack(side='right')
+                         values=list(FORMAT_LABELS.values())).pack(side='right')
             choices[iid]=value
         def apply():
-            selected={iid:({'135 / 6×9':'135','半格 18×24':'half','XPan 65:24':'65:24'}.get(v.get(),v.get()))
+            selected={iid:FORMAT_CHOICES[v.get()]
                       for iid,v in choices.items() if v.get()!='请选择'}
             if not selected:return
             self.file_formats.update(selected);dialog.destroy();self.start()
@@ -479,6 +484,9 @@ def main():
         diagnostic(sys.argv[sys.argv.index('--diagnostic')+1:]); return
     root = create_root()
     app = FilmApp(root)
+    if '--startup-test' in sys.argv:
+        from film_diagnostic import startup_test
+        startup_test(root, sys.argv[sys.argv.index('--startup-test')+1])
     # Optional local smoke-test: exercise Tcl drop parsing, controls and queue.
     if '--ui-smoke-test' in sys.argv:
         from film_diagnostic import ui_smoke_test
