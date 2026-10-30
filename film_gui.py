@@ -11,17 +11,20 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import uuid
+from dataclasses import replace
+from film_darkframe import FormatRequired
 
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from PIL import Image, ImageTk
 from film_engine import Options, process_file
 from film_io import SUPPORTED_EXTENSIONS
+from film_version import VERSION
 
 
 class FilmApp:
     def __init__(self, root):
         self.root = root
-        self.root.title('FilmCrop')
+        self.root.title('FilmCrop ' + VERSION)
         self.set_app_icon()
         self.root.geometry('900x620')
         self.root.minsize(800, 470)
@@ -33,6 +36,8 @@ class FilmApp:
         self.completed = {}
         self.active_jobs = {}
         self.batch_skipped = 0
+        self.file_formats = {}
+        self.active_options = {}
         self.preview_photo = None
         self.output_dir = tk.StringVar()
         self.format = tk.StringVar(value='自动识别')
@@ -119,7 +124,7 @@ class FilmApp:
         options.grid(row=4, column=0, sticky='ew', pady=(0, 8))
         ttk.Label(options, text='画幅').pack(side='left')
         self.format_combo = ttk.Combobox(options, textvariable=self.format,
-                                        values=['自动识别', '135', '645', '66', '67', '69'], width=9, state='readonly')
+                                        values=['自动识别', '135 / 6×9', '半格 18×24', '645', '66', '67', 'XPan 65:24', '56:24'], width=13, state='readonly')
         self.format_combo.pack(side='left', padx=(6, 14))
         ttk.Label(options, text='导出').pack(side='left')
         self.export_combo = ttk.Combobox(options, textvariable=self.export,
@@ -234,11 +239,13 @@ class FilmApp:
         if self.running: return
         for iid in self.tree.selection():
             self.paths.pop(iid, None); self.outputs.pop(iid, None); self.completed.pop(iid, None); self.tree.delete(iid)
+            self.file_formats.pop(iid,None)
 
     def clear(self):
         if self.running: return
         self.tree.delete(*self.tree.get_children()); self.paths.clear(); self.outputs.clear()
         self.completed.clear()
+        self.file_formats.clear()
         self.preview.configure(image='', text='选中查看裁切结果'); self.preview_photo = None
         self.status.set('已清空文件列表。')
 
@@ -254,8 +261,9 @@ class FilmApp:
     def pending_jobs(self, folder, options):
         jobs = []; signatures = {}
         for iid, source in self.paths.items():
+            effective=replace(options,format=self.file_formats.get(iid,options.format))
             try:
-                signature = self.job_signature(source, folder, options)
+                signature = self.job_signature(source, folder, effective)
             except OSError:
                 signature = None  # Let the worker report unreadable files.
             record = self.outputs.get(iid, {})
@@ -280,7 +288,7 @@ class FilmApp:
             if not 0 <= side <= .1: raise ValueError('135 两侧留边范围为 0 至 10%。')
             if not 0 <= top < .1 or not 0 <= bottom < .1: raise ValueError('上下收边范围为 0 至小于 10%。')
             if not 0 <= margin <= .1: raise ValueError('120 边框扩展范围为 0 至 10%。')
-            options = Options(format='auto' if self.format.get() == '自动识别' else self.format.get(),
+            options = Options(format={'自动识别':'auto', '135 / 6×9':'135', '半格 18×24':'half', 'XPan 65:24':'65:24'}.get(self.format.get(),self.format.get()),
                               output_format='TIFF16' if self.export.get() == '16 位 TIFF' else 'JPEG',
                               keep_border=self.keep.get(), auto_rotate=self.auto_rotate.get(), top_trim=top, bottom_trim=bottom, border_margin=margin, sprocket_side=side)
         except Exception as exc:
@@ -291,6 +299,7 @@ class FilmApp:
             self.status.set(f'已跳过 {self.batch_skipped} 个已完成文件。')
             return
         self.running = True; self.stop.clear()
+        self.active_options={iid:replace(options,format=self.file_formats.get(iid,options.format)) for iid,_ in jobs}
         self.set_busy(True)
         for iid, source in jobs:
             self.outputs.pop(iid, None); self.completed.pop(iid, None)
@@ -314,9 +323,13 @@ class FilmApp:
             if self.stop.is_set(): break
             self.events.put(('working', iid, path.name))
             try:
-                record = process_file(path, folder, options)
+                record = process_file(path, folder, self.active_options.get(iid,options))
                 records.append(record); success += 1
                 self.events.put(('result', iid, record, index+1))
+            except FormatRequired as exc:
+                record={'source':str(path),'error':str(exc),'requires_format':True}
+                records.append(record)
+                self.events.put(('error',iid,record,index+1))
             except Exception as exc:
                 errors += 1
                 record = {'source': str(path), 'error': str(exc)}
@@ -352,7 +365,7 @@ class FilmApp:
                 elif kind == 'error':
                     _, iid, record, index = event
                     self.outputs[iid] = record
-                    self.tree.item(iid, values=(self.paths[iid].name, '失败', '—'))
+                    self.tree.item(iid, values=(self.paths[iid].name, '待指定画幅' if record.get('requires_format') else '失败', '—'))
                     self.progress.configure(value=index)
                 elif kind == 'done':
                     _, success, errors, remaining, report, report_error = event
@@ -364,8 +377,31 @@ class FilmApp:
                                     (f' 已跳过 {self.batch_skipped} 个已完成文件。' if self.batch_skipped else '') +
                                     ('' if not report_error else ' 报告写入失败：' + report_error))
                     if report_error: messagebox.showerror('报告写入失败', report_error, parent=self.root)
+                    pending=[iid for iid in self.active_jobs if self.outputs.get(iid,{}).get('requires_format')]
+                    if pending and not self.stop.is_set():self.ask_dark_formats(pending)
         except queue.Empty: pass
         self.root.after(100, self.poll)
+
+    def ask_dark_formats(self, items):
+        dialog=tk.Toplevel(self.root);dialog.title('指定画幅');dialog.transient(self.root)
+        body=ttk.Frame(dialog,padding=16);body.pack(fill='both',expand=True)
+        ttk.Label(body,text='以下图片亮度低、边界不完整。选择画幅后按可见边缘推算。').pack(anchor='w')
+        choices={}
+        for iid in items:
+            row=ttk.Frame(body);row.pack(fill='x',pady=5)
+            ttk.Label(row,text=self.paths[iid].name,width=38).pack(side='left')
+            value=tk.StringVar(value='请选择')
+            ttk.Combobox(row,textvariable=value,state='readonly',width=13,
+                         values=['135 / 6×9','半格 18×24','645','66','67','XPan 65:24','56:24']).pack(side='right')
+            choices[iid]=value
+        def apply():
+            selected={iid:({'135 / 6×9':'135','半格 18×24':'half','XPan 65:24':'65:24'}.get(v.get(),v.get()))
+                      for iid,v in choices.items() if v.get()!='请选择'}
+            if not selected:return
+            self.file_formats.update(selected);dialog.destroy();self.start()
+        ttk.Button(body,text='按所选画幅重试',command=apply).pack(side='right',pady=(10,0))
+        ttk.Button(body,text='稍后处理',command=dialog.destroy).pack(side='right',padx=8,pady=(10,0))
+        dialog.grab_set()
 
     def select_preview(self, _event=None):
         selection = self.tree.selection()
@@ -373,7 +409,7 @@ class FilmApp:
         record = self.outputs.get(selection[0])
         if not record: return
         if 'error' in record:
-            self.preview.configure(image='', text='此文件处理失败'); self.preview_photo = None
+            self.preview.configure(image='', text='请指定画幅' if record.get('requires_format') else '此文件处理失败'); self.preview_photo = None
             self.detail.configure(text=record['error']); return
         try:
             with Image.open(record['output']) as image:

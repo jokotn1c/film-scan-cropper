@@ -28,8 +28,15 @@ FORMATS = {
     "645": 56 / 41.5,     # approximately 1.3494
     "66": 1.0,
     "67": 56 / 69,        # approximately 0.8116
-    "69": 56 / 84,        # useful extra preset
+    "half": 18 / 24,      # half-frame 18x24 mm
+    # 6x9 and 135 are treated as the same 3:2 crop family. The small
+    # nominal difference between 56x84 and 36x24 is below reliable detection
+    # precision in these camera copies.
+    "65:24": 65 / 24,     # Hasselblad XPan
+    "56:24": 56 / 24,     # medium-format panoramic 135 back
 }
+
+PANORAMIC_FORMATS = {'65:24', '56:24'}
 
 # User's reference look for a 135 frame with both perforation bands retained.
 # This is the full-strip presentation ratio, width:height = 6:5.5.

@@ -70,7 +70,8 @@ def estimate_rotation(preview):
                 (x,y),(cw,ch),angle = cv2.minAreaRect(c)
                 if min(cw,ch)<=0: continue
                 area = cw*ch/(w*h); aspect=max(cw,ch)/min(cw,ch)
-                if not (.18<area<.95 and abs(x/w-.5)<.2 and abs(y/h-.5)<.2 and 1<=aspect<1.85): continue
+                if not (.18<area<.95 and abs(x/w-.5)<.2 and abs(y/h-.5)<.2
+                        and (1<=aspect<1.85 or abs(aspect-65/24)<.12 or abs(aspect-56/24)<.10)): continue
                 rectangularity=cv2.contourArea(c)/(cw*ch)
                 if rectangularity<.92: continue
                 # Image-boundary rectangles provide no independent roll evidence.

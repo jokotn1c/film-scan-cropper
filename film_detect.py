@@ -18,7 +18,72 @@ def prepare(im):
   im=(v*255).astype(np.uint8)
  return im,neg
 
-def analyze(im):
+def strip_frame(image, requested_format=None):
+ """Locate a complete central frame bracketed by two dark film gaps.
+
+ High percentiles require the gaps to stay dark along most of their length;
+ a median alone confuses a shadow within the picture with a film separator.
+ Work in both strip orientations, and require visible neighboring pictures.
+ """
+ gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY).astype(np.float32)
+ found=[]
+ for transpose in (False,True):
+  g=gray.T if transpose else gray
+  h,w=g.shape
+  profile=np.percentile(g[int(.15*h):int(.85*h)],85,axis=0)
+  floor=float(np.percentile(profile,5))
+  dynamic=float(np.percentile(profile,95)-floor)
+  threshold=floor+max(3.,.045*dynamic)
+  mask=profile<threshold
+  changes=np.diff(np.r_[False,mask,False].astype(np.int8))
+  bands=[(int(a),int(b)) for a,b in zip(np.where(changes==1)[0],np.where(changes==-1)[0])
+         if .008*w<=b-a<=.08*w and a>.03*w and b<.97*w]
+  left=[q for q in bands if q[1]<.5*w]
+  right=[q for q in bands if q[0]>.5*w]
+  if not left or not right:continue
+  a,x0=max(left,key=lambda q:q[1]);x1,b=min(right,key=lambda q:q[0])
+  fw=x1-x0
+  if not .3*w<fw<.85*w:continue
+  step=max(4,int(.025*w))
+  # Both gaps must separate pictures, not just surround one photograph.
+  if min(float(np.median(profile[max(0,a-2*step):a-step])),
+         float(np.median(profile[b+step:min(w,b+2*step)])))<threshold+max(5.,.065*dynamic):continue
+  row=np.percentile(g[:,x0+int(.12*fw):x1-int(.12*fw)],75,axis=1).astype(np.float32)
+  row=cv2.GaussianBlur(row.reshape(-1,1),(1,0),1.2).ravel()
+  jump=row[6:]-row[:-6]
+  top=int(np.argmax(jump[:int(.25*h)]))+3
+  lo=int(.75*h)
+  bottom=int(np.argmin(jump[lo:]))+lo+3
+  if min(float(jump[top-3]),float(-jump[bottom-3]))<15:continue
+  fh=bottom-top
+  if fh<.5*h:continue
+  measured=fw/fh
+  # Broad inter-frame gaps without perforations indicate medium-format
+  # strip geometry.  Avoid letting the almost identical half-frame ratio
+  # displace 645 in this specific case.
+  formats={k:r for k,r in f.FORMATS.items() if k not in f.PANORAMIC_FORMATS}
+  medium_gap=min(x0-a,b-x1)>.035*min(fw,fh)
+  if medium_gap and requested_format!='half':formats.pop('half',None)
+  aspect=max(measured,1/measured)
+  fmt=requested_format or min(formats,key=lambda k:abs(math.log(max(formats[k],1/formats[k])/aspect)))
+  if fmt not in formats:continue
+  error=abs(math.log(max(formats[fmt],1/formats[fmt])/aspect))
+  if error>.035:continue
+  box=[top,x0,fh,fw] if transpose else [x0,top,fw,fh]
+  k=4
+  jump_left=float(np.median(g[top+int(.15*fh):bottom-int(.15*fh),x0+k:x0+2*k])-
+                  np.median(g[top+int(.15*fh):bottom-int(.15*fh),x0-2*k:x0-k]))
+  jump_right=float(np.median(g[top+int(.15*fh):bottom-int(.15*fh),x1-2*k:x1-k])-
+                   np.median(g[top+int(.15*fh):bottom-int(.15*fh),x1+k:x1+2*k]))
+  jumps=[jump_left,jump_right,float(jump[top-3]),float(-jump[bottom-3])]
+  if transpose:jumps=jumps[2:]+jumps[:2]
+  found.append(dict(box=box,format=fmt,measured=box[2]/box[3],error=error,
+                    score=12.-18*error,jumps=jumps,strip_frame=True,
+                    strip_axis=1 if transpose else 0,
+                    ambiguous_format=bool(medium_gap and fmt=='645')))
+ return min(found,key=lambda q:q['error']) if found else None
+
+def analyze(im, requested_format=None):
  s,sc=f.resize_for_detection(im,1200);s,neg=prepare(s);h,w=s.shape[:2];g=cv2.cvtColor(s,cv2.COLOR_BGR2GRAY);g=cv2.GaussianBlur(g,(0,0),1)
  boxes=set()
  for channel in [g,*cv2.split(s)]:
@@ -78,7 +143,11 @@ def analyze(im):
   r=max(cw,ch)/min(cw,ch);fm=min(f.FORMATS,key=lambda k:abs(math.log(max(f.FORMATS[k],1/f.FORMATS[k])/r)));err=abs(math.log(max(f.FORMATS[fm],1/f.FORMATS[fm])/r))
   if err>.04:continue
   if hole_box is not None:
-   if fm!='135' or cw<.9*hole_box[2] or ch<.9*hole_box[3] or cw>1.12*hole_box[2] or ch>1.12*hole_box[3]:continue
+   if fm not in {'135',*f.PANORAMIC_FORMATS}:continue
+   hx,hy,hw,hh=hole_box
+   factor=f.FORMATS[fm]/1.5
+   expected_w,expected_h=(hw*factor,hh) if hw>hh else (hw,hh*factor)
+   if not (.9*expected_w<cw<1.12*expected_w and .9*expected_h<ch<1.12*expected_h):continue
    if strict_hole_geometry:
     hx,hy,hw,hh=hole_box
     # Hole pitch constrains size, but incomplete hole rows do not precisely
@@ -96,6 +165,13 @@ def analyze(im):
    (g[y+ch-2*k:y+ch-k,xa:xb],g[y+ch+k:y+ch+2*k,xa:xb])]:
    vals.append(float(np.median(inside))-float(np.median(outside)))
   outs=[g[ya:yb,x-2*k:x-k],g[ya:yb,x+cw+k:x+cw+2*k],g[y-2*k:y-k,xa:xb],g[y+ch+k:y+ch+2*k,xa:xb]]
+  # Perforations establish the 24 mm height, not the exposed frame length.
+  # Panoramic frames need four visible boundaries so a long strip containing
+  # neighboring 135 frames is never inferred from hole spacing alone.
+  if fm in f.PANORAMIC_FORMATS and hole_box is not None:
+   if min(vals)>3:pass
+   elif max(vals)<-3:vals=[-v for v in vals]
+   else:continue
   surround=sum(float(np.mean(a<30)) for a in outs)
   # A monochrome negative can be darker than its unexposed film surround.
   # Only reverse edge evidence after independent paired-hole geometry has
@@ -119,6 +195,34 @@ def analyze(im):
     enclosing.append(q)
   if enclosing:
    chosen=max(enclosing,key=lambda q:q['box'][2]*q['box'][3]);result.remove(chosen);result.insert(0,chosen);chosen['ambiguous']=True
+ if hole_box is None and not neg:
+  strip=strip_frame(s,requested_format)
+  # Replace a square scene box or a box crossing a verified film gap.
+  # Non-square candidates with matching orientation keep their established
+  # bounds unless the user explicitly requested this strip format.
+  if strip is not None and result:
+   axis=strip['strip_axis'];start=strip['box'][axis];length=strip['box'][axis+2]
+   oldstart=result[0]['box'][axis];oldlength=result[0]['box'][axis+2]
+   spans_gap=(oldstart<start-.08*length or oldstart+oldlength>start+1.08*length)
+   crossed_orientation=(result[0]['measured']>=1)!=(strip['measured']>=1)
+   if (result[0]['format']=='66' or
+       (spans_gap and crossed_orientation) or
+       (requested_format==strip['format'] and spans_gap)):
+    result.insert(0,strip)
+ # When most of a square frame merges into its black surround, internal
+ # scene rectangles have no four independent boundaries. Use separately
+ # verified light-table and visible-picture evidence instead.
+ if hole_box is None:
+  from film_darkframe import dark_frame, FormatRequired
+  evidence=dark_frame(raw)
+  if evidence:
+   if requested_format is None:
+    raise FormatRequired('低亮度画面的边界不完整，请指定画幅后重试。')
+   dark_candidate=dark_frame(raw,f.FORMATS[requested_format])
+   if dark_candidate is None:
+    raise FormatRequired('所选画幅无法在可见底片范围内推算，请检查画幅或更换翻拍图片。')
+   dark_candidate['format']=requested_format
+   result.insert(0,dark_candidate)
  return result,sc,neg
 
 
@@ -132,9 +236,11 @@ def detect_auto(image):
     ratio = max(ratio,1/ratio) if w>=h else min(ratio,1/ratio)
     alternative = next((q for q in candidates[1:] if q['format'] != best['format']),None)
     reasons=[]
+    if best.get('estimated_dark'): reasons.append('dark square frame boundary estimated from film strip')
     if best.get('estimated'): reasons.append('boundary estimated from sprocket spacing')
     if best.get('ambiguous'): reasons.append('enclosing frame selected over scene edge')
-    if alternative and best['score']-alternative['score']<.6:
+    if best.get('ambiguous_format'): reasons.append('645/half-frame geometry is close; check format')
+    if alternative and not best.get('estimated_dark') and best['score']-alternative['score']<.6:
         reasons.append('competing format: '+alternative['format'])
     if best['error']>.025: reasons.append('measured ratio differs from preset by over 2.5%')
     if min(best['jumps'])<3: reasons.append('one or more frame edges have low contrast')

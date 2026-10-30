@@ -2,6 +2,15 @@ name: Build macOS Apple Silicon
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'film_*.py'
+      - 'requirements*.txt'
+      - 'FilmCrop-RAW-mac-arm64.spec'
+      - 'build_macos_arm64.sh'
+      - 'assets/**'
+      - '.github/workflows/build-macos-arm64.yml'
 
 jobs:
   build:
@@ -22,7 +31,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FilmCrop-RAW-mac-arm64
+          name: FilmCrop-RAW-1.9-mac-arm64
           path: |
-            dist-macos-arm64/FilmCrop-RAW-mac-arm64.zip
-            dist-macos-arm64/FilmCrop-RAW-mac-arm64.sha256
+            dist-macos-arm64/FilmCrop-RAW-*-mac-arm64.zip
+            dist-macos-arm64/FilmCrop-RAW-*-mac-arm64.sha256
