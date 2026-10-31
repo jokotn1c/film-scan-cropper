@@ -495,6 +495,10 @@ def main() -> None:
         process_one(args.input, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border, not args.no_auto_rotate)
     elif args.input.is_dir():
         out_dir = args.output_dir or args.input / "cropped"
+        if out_dir.resolve() == args.input.resolve():
+            parser.error("--output-dir must be different from the input folder")
+        if out_dir.exists() and not out_dir.is_dir():
+            parser.error(f"--output-dir must be a directory: {out_dir}")
         files = sorted(p for p in args.input.iterdir() if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS)
         if not files:
             raise SystemExit("no supported image files found")

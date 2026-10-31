@@ -217,6 +217,53 @@ class CliOutputPathTests(unittest.TestCase):
         self.assertEqual(base.read_bytes(), b"base")
         self.assertEqual(numbered.read_bytes(), b"numbered")
 
+    def test_folder_rejects_output_directory_equal_to_input(self):
+        source_folder = self.folder / "sources"
+        source_folder.mkdir()
+        (source_folder / "frame.jpg").write_bytes(b"source")
+        child = source_folder / "child"
+        child.mkdir()
+        equivalent_output = child / ".."
+
+        process, error = self._run_main_error(
+            source_folder,
+            "--output-dir",
+            equivalent_output,
+        )
+
+        process.assert_not_called()
+        self.assertIn("different from the input folder", error)
+
+    def test_folder_rejects_existing_file_as_output_directory(self):
+        source_folder = self.folder / "sources"
+        source_folder.mkdir()
+        (source_folder / "frame.jpg").write_bytes(b"source")
+        output_file = self.folder / "not-a-directory"
+        output_file.write_bytes(b"occupied")
+
+        process, error = self._run_main_error(
+            source_folder,
+            "--output-dir",
+            output_file,
+        )
+
+        process.assert_not_called()
+        self.assertIn("must be a directory", error)
+
+    def test_folder_default_child_output_directory_remains_allowed(self):
+        source_folder = self.folder / "sources"
+        source_folder.mkdir()
+        source = source_folder / "frame.jpg"
+        source.write_bytes(b"source")
+
+        process = self._run_main(source_folder)
+
+        self.assertEqual(process.call_count, 1)
+        self.assertEqual(
+            process.call_args.args[1].parent,
+            source_folder / "cropped",
+        )
+
     def test_folder_no_auto_rotate_disables_rotation_for_every_file(self):
         source_folder = self.folder / "sources"
         source_folder.mkdir()
