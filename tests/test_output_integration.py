@@ -19,9 +19,27 @@ _stub_module("numpy", uint8=object(), uint16=object())
 _stub_module("cv2", IMWRITE_JPEG_QUALITY=1)
 _stub_module("film_crop")
 _stub_module("film_detect", detect_auto=lambda image: None, analyze=lambda image, fmt: None)
+_stub_module("film_darkframe", FormatRequired=type("FormatRequired", (Exception,), {}))
+_stub_module("film_version", VERSION="test")
+_stub_module("tkinterdnd2", DND_FILES="DND_FILES", TkinterDnD=SimpleNamespace())
+_stub_module(
+    "tkinter",
+    filedialog=SimpleNamespace(),
+    messagebox=SimpleNamespace(),
+    ttk=SimpleNamespace(),
+)
+_stub_module(
+    "PIL",
+    Image=SimpleNamespace(),
+    ImageTk=SimpleNamespace(),
+)
+
+sys.modules["film_crop"].FORMAT_LABELS = {}
+sys.modules["film_crop"].FORMAT_CHOICES = {}
 
 import film_engine
 import film_io
+import film_gui
 
 
 class _EncodedBytes:
@@ -142,6 +160,62 @@ class OutputIntegrationTests(unittest.TestCase):
         self.assertEqual(writer.call_args.args[0], planned)
         self.assertEqual(record["output"], str(planned))
         self.assertEqual(occupied.read_bytes(), b"original")
+
+    def test_gui_plan_assigns_unique_paths_to_duplicate_stems(self):
+        app = object.__new__(film_gui.FilmApp)
+        app.active_options = {
+            "first": film_engine.Options(),
+            "second": film_engine.Options(),
+        }
+        jobs = [
+            ("first", self.folder / "roll-a" / "IMG_0001.ARW"),
+            ("second", self.folder / "roll-b" / "IMG_0001.ARW"),
+        ]
+
+        outputs = app.plan_job_outputs(jobs, self.folder)
+
+        self.assertEqual(
+            outputs,
+            {
+                "first": self.folder / "IMG_0001_crop.tif",
+                "second": self.folder / "IMG_0001_crop_2.tif",
+            },
+        )
+
+    def test_gui_plan_respects_each_jobs_format_and_border_suffix(self):
+        app = object.__new__(film_gui.FilmApp)
+        app.active_options = {
+            "border": film_engine.Options(output_format="JPEG", keep_border=True),
+            "crop": film_engine.Options(output_format="TIFF16", keep_border=False),
+        }
+        jobs = [
+            ("border", self.folder / "border-source.ARW"),
+            ("crop", self.folder / "crop-source.ARW"),
+        ]
+
+        outputs = app.plan_job_outputs(jobs, self.folder)
+
+        self.assertEqual(outputs["border"], self.folder / "border-source_border.jpg")
+        self.assertEqual(outputs["crop"], self.folder / "crop-source_crop.tif")
+
+    def test_worker_passes_planned_path_to_engine(self):
+        app = object.__new__(film_gui.FilmApp)
+        app.stop = SimpleNamespace(is_set=lambda: False)
+        app.events = __import__("queue").Queue()
+        source = self.folder / "source.ARW"
+        planned = self.folder / "source_crop.tif"
+        options = film_engine.Options()
+        app.active_options = {"job": options}
+        app.active_outputs = {"job": planned}
+
+        with mock.patch.object(
+            film_gui,
+            "process_file",
+            return_value={"source": str(source), "output": str(planned)},
+        ) as process:
+            app.worker([("job", source)], self.folder, options)
+
+        process.assert_called_once_with(source, self.folder, options, output=planned)
 
 
 if __name__ == "__main__":

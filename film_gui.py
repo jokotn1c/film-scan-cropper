@@ -18,6 +18,7 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 from PIL import Image, ImageTk
 from film_engine import Options, process_file
 from film_io import SUPPORTED_EXTENSIONS
+from film_paths import output_path, plan_output_paths
 from film_version import VERSION
 from film_crop import FORMAT_LABELS, FORMAT_CHOICES
 
@@ -36,6 +37,7 @@ class FilmApp:
         self.outputs = {}
         self.completed = {}
         self.active_jobs = {}
+        self.active_outputs = {}
         self.batch_skipped = 0
         self.file_formats = {}
         self.active_options = {}
@@ -278,6 +280,17 @@ class FilmApp:
             jobs.append((iid, source)); signatures[iid] = signature
         return jobs, signatures
 
+    def plan_job_outputs(self, jobs, folder):
+        candidates = []
+        for iid, source in jobs:
+            options = self.active_options[iid]
+            suffix = 'border' if options.keep_border else 'crop'
+            candidates.append(
+                output_path(folder, source, options.output_format, suffix)
+            )
+        planned = plan_output_paths(candidates)
+        return {iid: path for (iid, _), path in zip(jobs, planned)}
+
     def start(self):
         if self.running: return
         try:
@@ -301,10 +314,12 @@ class FilmApp:
         jobs, self.active_jobs = self.pending_jobs(folder, options)
         self.batch_skipped = len(self.paths)-len(jobs)
         if not jobs:
+            self.active_outputs = {}
             self.status.set(f'已跳过 {self.batch_skipped} 个已完成文件。')
             return
         self.running = True; self.stop.clear()
         self.active_options={iid:replace(options,format=self.file_formats.get(iid,options.format)) for iid,_ in jobs}
+        self.active_outputs = self.plan_job_outputs(jobs, folder)
         self.set_busy(True)
         for iid, source in jobs:
             self.outputs.pop(iid, None); self.completed.pop(iid, None)
@@ -328,7 +343,10 @@ class FilmApp:
             if self.stop.is_set(): break
             self.events.put(('working', iid, path.name))
             try:
-                record = process_file(path, folder, self.active_options.get(iid,options))
+                record = process_file(
+                    path, folder, self.active_options.get(iid, options),
+                    output=self.active_outputs[iid],
+                )
                 records.append(record); success += 1
                 self.events.put(('result', iid, record, index+1))
             except FormatRequired as exc:
