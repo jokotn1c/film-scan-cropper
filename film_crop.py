@@ -483,7 +483,7 @@ def main() -> None:
         planned_outputs = plan_output_paths(candidates)
         for path, fmt, output in zip(files, formats, planned_outputs):
             try:
-                process_one(path, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border)
+                process_one(path, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border, auto_rotate=not args.no_auto_rotate)
             except Exception as exc:
                 print(f"SKIP {path.name}: {exc}")
     else:

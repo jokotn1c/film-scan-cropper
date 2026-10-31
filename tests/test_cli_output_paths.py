@@ -136,6 +136,32 @@ class CliOutputPathTests(unittest.TestCase):
         self.assertEqual(base.read_bytes(), b"base")
         self.assertEqual(numbered.read_bytes(), b"numbered")
 
+    def test_folder_no_auto_rotate_disables_rotation_for_every_file(self):
+        source_folder = self.folder / "sources"
+        source_folder.mkdir()
+        (source_folder / "first.jpg").write_bytes(b"first")
+        (source_folder / "second.png").write_bytes(b"second")
+
+        process = self._run_main(source_folder, "--no-auto-rotate")
+
+        self.assertEqual(
+            [call.kwargs.get("auto_rotate") for call in process.call_args_list],
+            [False, False],
+        )
+
+    def test_folder_auto_rotate_remains_enabled_by_default(self):
+        source_folder = self.folder / "sources"
+        source_folder.mkdir()
+        (source_folder / "first.jpg").write_bytes(b"first")
+        (source_folder / "second.png").write_bytes(b"second")
+
+        process = self._run_main(source_folder)
+
+        self.assertEqual(
+            [call.kwargs.get("auto_rotate") for call in process.call_args_list],
+            [True, True],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
