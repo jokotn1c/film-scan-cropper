@@ -1,3 +1,5 @@
+import contextlib
+import io
 import sys
 import tempfile
 import types
@@ -35,6 +37,18 @@ class CliOutputPathTests(unittest.TestCase):
             film_crop.main()
         return process
 
+    def _run_main_error(self, *arguments):
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(sys, "argv", ["film_crop.py", *map(str, arguments)]),
+            mock.patch.object(film_crop, "process_one") as process,
+            contextlib.redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            film_crop.main()
+        self.assertEqual(raised.exception.code, 2)
+        return process, stderr.getvalue()
+
     def test_explicit_existing_output_fails_before_process_one(self):
         source = self.folder / "source.jpg"
         source.write_bytes(b"source")
@@ -68,6 +82,73 @@ class CliOutputPathTests(unittest.TestCase):
             self.folder / "source_135_6x9_2.jpg",
         )
         self.assertEqual(occupied.read_bytes(), b"original")
+
+    def test_explicit_auto_output_rejects_unsupported_extension(self):
+        source = self.folder / "source.jpg"
+        source.write_bytes(b"source")
+
+        process, error = self._run_main_error(
+            source,
+            "--output",
+            self.folder / "result.png",
+        )
+
+        process.assert_not_called()
+        self.assertIn(".jpg, .jpeg, .tif, or .tiff", error)
+
+    def test_explicit_auto_output_rejects_missing_extension(self):
+        source = self.folder / "source.jpg"
+        source.write_bytes(b"source")
+
+        process, error = self._run_main_error(
+            source,
+            "--output",
+            self.folder / "result",
+        )
+
+        process.assert_not_called()
+        self.assertIn(".jpg, .jpeg, .tif, or .tiff", error)
+
+    def test_explicit_output_format_rejects_mismatched_extension(self):
+        source = self.folder / "source.jpg"
+        source.write_bytes(b"source")
+        cases = [
+            ("JPEG", self.folder / "result.tif", ".jpg or .jpeg"),
+            ("TIFF16", self.folder / "result.jpg", ".tif or .tiff"),
+        ]
+
+        for output_format, output, expected_error in cases:
+            with self.subTest(output_format=output_format):
+                process, error = self._run_main_error(
+                    source,
+                    "--output",
+                    output,
+                    "--output-format",
+                    output_format,
+                )
+                process.assert_not_called()
+                self.assertIn(expected_error, error)
+
+    def test_explicit_auto_output_accepts_supported_extensions(self):
+        source = self.folder / "source.jpg"
+        source.write_bytes(b"source")
+        cases = [
+            ("result.jpg", "JPEG"),
+            ("result.jpeg", "JPEG"),
+            ("result.tif", "TIFF16"),
+            ("result.tiff", "TIFF16"),
+            ("result.JPEG", "JPEG"),
+            ("result.TIFF", "TIFF16"),
+        ]
+
+        for name, expected_format in cases:
+            with self.subTest(name=name):
+                process = self._run_main(
+                    source,
+                    "--output",
+                    self.folder / name,
+                )
+                self.assertEqual(process.call_args.args[11], expected_format)
 
     def test_folder_outputs_are_planned_before_processing(self):
         source_folder = self.folder / "sources"

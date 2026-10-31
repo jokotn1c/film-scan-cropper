@@ -44,6 +44,9 @@ FORMAT_CHOICES = {'自动识别': 'auto', **{label: key for key, label in FORMAT
 SPROCKET_RATIO_135 = 6 / 5.5
 SPROCKET_SIDE_MARGIN = 0.035
 
+JPEG_OUTPUT_SUFFIXES = {'.jpg', '.jpeg'}
+TIFF_OUTPUT_SUFFIXES = {'.tif', '.tiff'}
+
 
 def sprocket_margins(ratio=1.5, side_margin=SPROCKET_SIDE_MARGIN):
     """Match full-strip ratio without the later center crop eating side borders."""
@@ -59,6 +62,24 @@ def parse_point(value: str) -> Tuple[float, float]:
         return float(x), float(y)
     except Exception as exc:  # pragma: no cover - argparse displays message
         raise argparse.ArgumentTypeError(f"invalid point {value!r}; use x,y") from exc
+
+
+def explicit_output_format(path: Path, requested: str) -> str:
+    """Resolve an explicit output format without disguising encoded bytes."""
+    suffix = Path(path).suffix.lower()
+    if requested == 'auto':
+        if suffix in JPEG_OUTPUT_SUFFIXES:
+            return 'JPEG'
+        if suffix in TIFF_OUTPUT_SUFFIXES:
+            return 'TIFF16'
+        raise ValueError(
+            'explicit --output extension must be .jpg, .jpeg, .tif, or .tiff'
+        )
+    if requested == 'JPEG' and suffix not in JPEG_OUTPUT_SUFFIXES:
+        raise ValueError('JPEG output requires a .jpg or .jpeg extension')
+    if requested == 'TIFF16' and suffix not in TIFF_OUTPUT_SUFFIXES:
+        raise ValueError('TIFF16 output requires a .tif or .tiff extension')
+    return requested
 
 
 def resize_for_detection(image: np.ndarray, max_side: int = 1600) -> Tuple[np.ndarray, float]:
@@ -463,12 +484,14 @@ def main() -> None:
     if args.input.is_file():
         fmt = export_format(args.input)
         if args.output:
+            try:
+                fmt = explicit_output_format(args.output, args.output_format)
+            except ValueError as exc:
+                parser.error(str(exc))
             output = require_output_available(args.output)
         else:
             candidate = output_path(args.input.parent, args.input, fmt, args.format)
             output = plan_output_paths([candidate])[0]
-        if args.output and args.output_format == 'auto':
-            fmt = 'TIFF16' if output.suffix.lower() in {'.tif', '.tiff'} else 'JPEG'
         process_one(args.input, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border, not args.no_auto_rotate)
     elif args.input.is_dir():
         out_dir = args.output_dir or args.input / "cropped"
