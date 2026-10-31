@@ -444,7 +444,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.keep_border and args.keep_sprockets:
         parser.error('choose --keep-border or --keep-sprockets')
-    from film_io import RAW_EXTENSIONS, SUPPORTED_EXTENSIONS, output_path
+    from film_io import RAW_EXTENSIONS, SUPPORTED_EXTENSIONS
+    from film_paths import output_path, plan_output_paths, require_output_available
     def export_format(path):
         if args.output_format != 'auto': return args.output_format
         return 'TIFF16' if path.suffix.lower() in RAW_EXTENSIONS else 'JPEG'
@@ -461,7 +462,11 @@ def main() -> None:
         parser.error("ratio must be positive")
     if args.input.is_file():
         fmt = export_format(args.input)
-        output = args.output or output_path(args.input.parent, args.input, fmt, args.format)
+        if args.output:
+            output = require_output_available(args.output)
+        else:
+            candidate = output_path(args.input.parent, args.input, fmt, args.format)
+            output = plan_output_paths([candidate])[0]
         if args.output and args.output_format == 'auto':
             fmt = 'TIFF16' if output.suffix.lower() in {'.tif', '.tiff'} else 'JPEG'
         process_one(args.input, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border, not args.no_auto_rotate)
@@ -470,10 +475,14 @@ def main() -> None:
         files = sorted(p for p in args.input.iterdir() if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS)
         if not files:
             raise SystemExit("no supported image files found")
-        for path in files:
+        formats = [export_format(path) for path in files]
+        candidates = [
+            output_path(out_dir, path, fmt, args.format)
+            for path, fmt in zip(files, formats)
+        ]
+        planned_outputs = plan_output_paths(candidates)
+        for path, fmt, output in zip(files, formats, planned_outputs):
             try:
-                fmt = export_format(path)
-                output = output_path(out_dir, path, fmt, args.format)
                 process_one(path, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border)
             except Exception as exc:
                 print(f"SKIP {path.name}: {exc}")
