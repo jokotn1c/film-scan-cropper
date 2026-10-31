@@ -4,6 +4,7 @@ import os
 import uuid
 import cv2
 import numpy as np
+from film_paths import output_path, require_output_available
 
 RAW_EXTENSIONS = {'.arw', '.srf', '.sr2', '.cr2', '.cr3', '.crw', '.nef', '.nrw',
                   '.raf', '.orf', '.ori', '.rw2', '.raw', '.rwl', '.dng', '.pef',
@@ -64,13 +65,14 @@ def detection_image(image):
 
 
 def write_image(path, image, output_format='TIFF16', is_raw=False, *, source=None):
-    """Encode completely before atomically replacing a previous result."""
+    """Encode completely, then commit only to an unoccupied destination."""
     path = Path(path)
     if source is not None:
         source = Path(source)
         if (path.resolve() == source.resolve()
                 or (path.exists() and source.exists() and path.samefile(source))):
             raise ValueError('输出文件不能与原始文件相同')
+    require_output_available(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name('.' + path.stem + '-' + uuid.uuid4().hex + '.tmp')
     try:
@@ -98,12 +100,7 @@ def write_image(path, image, output_format='TIFF16', is_raw=False, *, source=Non
                 encoded.tofile(temp)
         else:
             raise ValueError('未知输出格式：' + output_format)
+        require_output_available(path)
         os.replace(temp, path)
     finally:
         if temp.exists(): temp.unlink()
-
-
-def output_path(folder, source, output_format, suffix='crop'):
-    extension = '.tif' if output_format == 'TIFF16' else '.jpg'
-    stem = Path(source).stem + '_' + suffix.replace(':','x').replace('/','_').replace('\\','_')
-    return Path(folder) / (stem + extension)

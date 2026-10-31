@@ -7,6 +7,7 @@ import numpy as np
 import film_crop as fc
 from film_detect import detect_auto, analyze
 from film_io import read_image, detection_image, write_image, output_path
+from film_paths import plan_output_paths
 
 
 @dataclass(frozen=True)
@@ -154,13 +155,17 @@ def crop_pixels(image, detection, options):
     return result
 
 
-def process_file(source, folder, options=Options()):
+def process_file(source, folder, options=Options(), *, output=None):
     source = Path(source)
     image, metadata = read_image(source)
     detection = locate(image, options.format, options.auto_rotate)
     result = crop_pixels(image, detection, options)
     suffix = 'border' if options.keep_border else 'crop'
-    output = output_path(folder, source, options.output_format, suffix)
+    if output is None:
+        candidate = output_path(folder, source, options.output_format, suffix)
+        output = plan_output_paths([candidate])[0]
+    else:
+        output = Path(output)
     write_image(output, result, options.output_format, metadata['source_type'] == 'RAW', source=source)
     h, w = image.shape[:2]; oh, ow = result.shape[:2]
     record = {'source': str(source), 'output': str(output), **metadata, **detection,
