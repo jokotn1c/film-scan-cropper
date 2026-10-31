@@ -1,6 +1,6 @@
-胶片裁切 FilmCrop-RAW 1.9 · Windows 64 位便携版
+胶片裁切 FilmCrop-RAW 1.9.1 · Windows 64 位便携版
 
-1. 双击 FilmCrop-RAW-1.9.exe，无需安装 Python。
+1. 双击 FilmCrop-RAW-1.9.1.exe，无需安装 Python。
 2. 把 RAW / JPEG / TIFF 照片或文件夹拖到绿色区域，或点击“添加文件”。
 3. 选择输出文件夹。默认自动识别画幅、开启“自动转正”，导出 16 位 TIFF。
 4. 普通裁切保持开关关闭；需要齿孔或边框时勾选“保留 135 齿孔 / 120 边框”。

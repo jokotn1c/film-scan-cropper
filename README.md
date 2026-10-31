@@ -1,4 +1,4 @@
-# FilmCrop 1.9
+# FilmCrop 1.9.1
 
 自动识别相机翻拍胶片的画面边框，转正并裁切。提供 Windows 界面和 macOS 构建配置，支持批量导入 RAW 与普通JPG。
 

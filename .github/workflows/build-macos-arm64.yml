@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FilmCrop-RAW-1.9-mac-arm64
+          name: FilmCrop-RAW-1.9.1-mac-arm64
           path: |
             dist-macos-arm64/FilmCrop-RAW-*-mac-arm64.zip
             dist-macos-arm64/FilmCrop-RAW-*-mac-arm64.sha256

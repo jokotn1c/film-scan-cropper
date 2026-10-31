@@ -20,7 +20,6 @@ _stub_module("cv2", IMWRITE_JPEG_QUALITY=1)
 _stub_module("film_crop")
 _stub_module("film_detect", detect_auto=lambda image: None, analyze=lambda image, fmt: None)
 _stub_module("film_darkframe", FormatRequired=type("FormatRequired", (Exception,), {}))
-_stub_module("film_version", VERSION="test")
 _stub_module("tkinterdnd2", DND_FILES="DND_FILES", TkinterDnD=SimpleNamespace())
 _stub_module(
     "tkinter",
