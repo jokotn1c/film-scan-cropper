@@ -260,6 +260,7 @@ def analyze(im, requested_format=None):
     enclosing.append(q)
   if enclosing:
    chosen=max(enclosing,key=lambda q:q['box'][2]*q['box'][3]);result.remove(chosen);result.insert(0,chosen);chosen['ambiguous']=True
+ strip_detected=False
  if hole_box is None and not neg:
   strip=strip_frame(s,requested_format)
   # Replace a square scene box or a box crossing a verified film gap.
@@ -282,10 +283,15 @@ def analyze(im, requested_format=None):
    if (result[0]['format']=='6x6' or
        crossed_orientation or
        (clipped_side and strip['score']>result[0]['score']) or
-       (spans_gap and strip['error']<.015) or
-       (spans_gap and strip['score']>result[0]['score']) or
+       (result[0]['format']!=strip['format'] and
+        strip['score']>result[0]['score']+.8) or
+       (result[0]['format']==strip['format'] and
+        strip['score']>result[0]['score']+1.2) or
+       (result[0]['format']!=strip['format'] and spans_gap and
+        strip['score']>result[0]['score']) or
        (requested_format==strip['format'] and spans_gap)):
     result.insert(0,strip)
+    strip_detected=True
   if strip is None:
    missing=strip_frame(s,requested_format,incomplete=True)
    if missing is not None:
@@ -296,7 +302,7 @@ def analyze(im, requested_format=None):
  # When most of a square frame merges into its black surround, internal
  # scene rectangles have no four independent boundaries. Use separately
  # verified light-table and visible-picture evidence instead.
- if hole_box is None:
+ if hole_box is None and not strip_detected:
   from film_darkframe import dark_frame, FormatRequired
   evidence=dark_frame(raw)
   if evidence:

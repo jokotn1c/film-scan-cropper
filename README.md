@@ -25,6 +25,13 @@ python3 -m PyInstaller --noconfirm --clean FilmCrop-Preview-mac-arm64.spec
 
 更多说明见 [MACOS-PREVIEW.md](MACOS-PREVIEW.md)。
 
+## 版本规则
+
+- 较大的功能性改动或界面改动：第二位加 1，例如 v1.9 → v1.10，第三位归零并省略。
+- 单纯的小幅图片处理算法改进：第三位加 1，例如 v1.9 → v1.9.1 → v1.9.2。
+- 同次发布同时包含上述改动时，按功能或界面版本递增。仅更新说明不改版本号。
+- 应用与构建版本以 `film_version.py` 为准；当前版本为 v1.9.1。
+
 ## 经典版使用
 
 1. 将 RAW、JPG或文件夹拖入窗口。
