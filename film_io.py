@@ -1,7 +1,6 @@
 """Decode camera RAW / raster files and export sRGB JPEG or 16-bit TIFF."""
 from pathlib import Path
 import os
-import shutil
 import uuid
 import cv2
 import numpy as np
@@ -13,6 +12,7 @@ RAW_EXTENSIONS = {'.arw', '.srf', '.sr2', '.cr2', '.cr3', '.crw', '.nef', '.nrw'
                   '.mrw', '.mef', '.erf', '.x3f'}
 RASTER_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp'}
 SUPPORTED_EXTENSIONS = RAW_EXTENSIONS | RASTER_EXTENSIONS
+WINDOWS = os.name == 'nt'
 
 
 def read_image(path):
@@ -65,45 +65,13 @@ def detection_image(image):
     return image
 
 
-def _path_matches_stat(path, expected):
-    try:
-        return os.path.samestat(expected, Path(path).stat())
-    except OSError:
-        return False
-
-
-def _copy_exclusive(temp, path):
-    """Copy an encoded temp file into a newly reserved destination."""
-    descriptor = None
-    created_stat = None
-    try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
-        created_stat = os.fstat(descriptor)
-        with os.fdopen(descriptor, 'wb') as destination:
-            descriptor = None
-            with Path(temp).open('rb') as source:
-                shutil.copyfileobj(source, destination)
-        if not _path_matches_stat(path, created_stat):
-            raise FileExistsError(f'输出路径在写入期间发生变化：{path}')
-        Path(temp).unlink()
-    except Exception:
-        if descriptor is not None:
-            os.close(descriptor)
-        if created_stat is not None and _path_matches_stat(path, created_stat):
-            Path(path).unlink()
-        raise
-
-
 def _commit_without_overwrite(temp, path):
     """Publish a complete file without ever replacing an existing path."""
-    try:
-        os.link(temp, path)
-    except FileExistsError:
-        raise
-    except OSError:
-        _copy_exclusive(temp, path)
-    else:
-        Path(temp).unlink()
+    if WINDOWS:
+        os.rename(temp, path)
+        return
+    os.link(temp, path)
+    Path(temp).unlink()
 
 
 def write_image(path, image, output_format='TIFF16', is_raw=False, *, source=None):

@@ -77,7 +77,7 @@ class OutputIntegrationTests(unittest.TestCase):
         encode.assert_not_called()
         self.assertEqual(destination.read_bytes(), b"original")
 
-    def test_write_image_rechecks_destination_before_replace(self):
+    def test_write_image_rechecks_destination_before_commit(self):
         destination = self.folder / "IMG_crop.jpg"
 
         def encode_after_competitor(*args, **kwargs):
@@ -133,10 +133,37 @@ class OutputIntegrationTests(unittest.TestCase):
         self.assertEqual(destination.read_bytes(), b"competitor")
         self.assertEqual(list(self.folder.glob(".*.tmp")), [])
 
-    def test_write_image_falls_back_when_hard_links_are_unsupported(self):
+    def test_write_image_uses_no_replace_rename_on_windows(self):
         destination = self.folder / "IMG_crop.jpg"
 
         with (
+            mock.patch.object(film_io, "WINDOWS", True, create=True),
+            mock.patch.object(
+                film_io.os,
+                "link",
+                side_effect=AssertionError("Windows publication must not use hard links"),
+            ),
+            mock.patch.object(film_io, "detection_image", side_effect=lambda image: image),
+            mock.patch.object(
+                film_io.cv2,
+                "imencode",
+                return_value=(True, _EncodedBytes()),
+                create=True,
+            ),
+        ):
+            try:
+                film_io.write_image(destination, object(), "JPEG")
+            except AssertionError as exc:
+                self.fail(str(exc))
+
+        self.assertEqual(destination.read_bytes(), b"new")
+        self.assertEqual(list(self.folder.glob(".*.tmp")), [])
+
+    def test_write_image_fails_closed_when_posix_hard_links_are_unsupported(self):
+        destination = self.folder / "IMG_crop.jpg"
+
+        with (
+            mock.patch.object(film_io, "WINDOWS", False, create=True),
             mock.patch.object(
                 film_io.os,
                 "link",
@@ -150,12 +177,10 @@ class OutputIntegrationTests(unittest.TestCase):
                 create=True,
             ),
         ):
-            try:
+            with self.assertRaises(OSError):
                 film_io.write_image(destination, object(), "JPEG")
-            except OSError as exc:
-                self.fail(f"hard-link failure did not fall back: {exc}")
 
-        self.assertEqual(destination.read_bytes(), b"new")
+        self.assertFalse(destination.exists())
         self.assertEqual(list(self.folder.glob(".*.tmp")), [])
 
     def _run_process_file(self, source, *, output=None, options=None):
