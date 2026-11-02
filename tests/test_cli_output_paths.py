@@ -49,6 +49,22 @@ class CliOutputPathTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 2)
         return process, stderr.getvalue()
 
+    def _run_main_capture(self, *arguments):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        exit_code = None
+        with (
+            mock.patch.object(sys, "argv", ["film_crop.py", *map(str, arguments)]),
+            mock.patch.object(film_crop, "process_one") as process,
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            try:
+                film_crop.main()
+            except SystemExit as exc:
+                exit_code = exc.code
+        return process, stdout.getvalue(), exit_code
+
     def test_explicit_existing_output_fails_before_process_one(self):
         source = self.folder / "source.jpg"
         source.write_bytes(b"source")
@@ -82,6 +98,75 @@ class CliOutputPathTests(unittest.TestCase):
             self.folder / "source_135_6x9_2.jpg",
         )
         self.assertEqual(occupied.read_bytes(), b"original")
+
+    def test_dry_run_single_prints_numbered_plan_without_processing(self):
+        source = self.folder / "source.jpg"
+        source.write_bytes(b"source")
+        occupied = self.folder / "source_135_6x9.jpg"
+        occupied.write_bytes(b"existing")
+
+        process, output, exit_code = self._run_main_capture(source, "--dry-run")
+
+        self.assertIsNone(exit_code)
+        process.assert_not_called()
+        planned = self.folder / "source_135_6x9_2.jpg"
+        self.assertEqual(output, f"PLAN {source} -> {planned}\n")
+
+    def test_dry_run_folder_prints_unique_plan_without_writes(self):
+        source_folder = self.folder / "sources"
+        source_folder.mkdir()
+        first = source_folder / "frame.jpg"
+        second = source_folder / "frame.png"
+        first.write_bytes(b"first")
+        second.write_bytes(b"second")
+        output_folder = self.folder / "planned-outputs"
+
+        process, output, exit_code = self._run_main_capture(
+            source_folder,
+            "--output-dir",
+            output_folder,
+            "--dry-run",
+        )
+
+        self.assertIsNone(exit_code)
+        process.assert_not_called()
+        self.assertFalse(output_folder.exists())
+        self.assertEqual(
+            output.splitlines(),
+            [
+                f"PLAN {first} -> {output_folder / 'frame_135_6x9.jpg'}",
+                f"PLAN {second} -> {output_folder / 'frame_135_6x9_2.jpg'}",
+            ],
+        )
+
+    def test_dry_run_explicit_existing_output_still_fails(self):
+        source = self.folder / "source.jpg"
+        source.write_bytes(b"source")
+        output = self.folder / "chosen.jpg"
+        output.write_bytes(b"original")
+
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "film_crop.py",
+                    str(source),
+                    "--output",
+                    str(output),
+                    "--dry-run",
+                ],
+            ),
+            mock.patch.object(film_crop, "process_one") as process,
+        ):
+            with self.assertRaises(FileExistsError):
+                try:
+                    film_crop.main()
+                except SystemExit as exc:
+                    self.fail(f"--dry-run was rejected with exit code {exc.code}")
+
+        process.assert_not_called()
+        self.assertEqual(output.read_bytes(), b"original")
 
     def test_explicit_auto_output_rejects_unsupported_extension(self):
         source = self.folder / "source.jpg"

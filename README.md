@@ -29,7 +29,10 @@ python film_crop.py input.ARW --format auto --keep-border --output result.tif
 python film_crop.py input.jpg --format 6.5x2.4 --output xpan.jpg
 python film_crop.py input.jpg --format 5.6x2.4 --output panorama.jpg
 python film_crop.py input.jpg --format "6x4.5/半格" --output half.jpg
+python film_crop.py scans --output-dir cropped --dry-run
 ```
+
+`--dry-run` 会打印每个输入对应的防冲突输出路径，不解码图片、不创建输出目录，也不写入文件。
 
 ## 构建
 

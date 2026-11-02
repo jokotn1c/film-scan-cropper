@@ -451,6 +451,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, help="output file for a single input")
     parser.add_argument("--output-dir", type=Path, help="output folder for a folder input")
     parser.add_argument("--output-format", choices=['auto', 'TIFF16', 'JPEG'], default='auto', help="default: TIFF16 for RAW, JPEG for raster input")
+    parser.add_argument("--dry-run", action="store_true", help="print planned output paths without processing images")
     parser.add_argument("--no-auto-rotate", action="store_true", help="disable small-angle film roll correction")
     parser.add_argument("--keep-border", action='store_true', help="retain 135 perforations or expand a 120 frame border")
     parser.add_argument("--corners", nargs=4, type=parse_point, metavar="X,Y", help="four frame corners: TL TR BR BL")
@@ -492,6 +493,9 @@ def main() -> None:
         else:
             candidate = output_path(args.input.parent, args.input, fmt, args.format)
             output = plan_output_paths([candidate])[0]
+        if args.dry_run:
+            print(f"PLAN {args.input} -> {output}")
+            return
         process_one(args.input, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border, not args.no_auto_rotate)
     elif args.input.is_dir():
         out_dir = args.output_dir or args.input / "cropped"
@@ -508,6 +512,10 @@ def main() -> None:
             for path, fmt in zip(files, formats)
         ]
         planned_outputs = plan_output_paths(candidates)
+        if args.dry_run:
+            for path, output in zip(files, planned_outputs):
+                print(f"PLAN {path} -> {output}")
+            return
         for path, fmt, output in zip(files, formats, planned_outputs):
             try:
                 process_one(path, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border, auto_rotate=not args.no_auto_rotate)
