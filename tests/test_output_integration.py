@@ -1,3 +1,4 @@
+import errno
 import sys
 import tempfile
 import types
@@ -96,6 +97,65 @@ class OutputIntegrationTests(unittest.TestCase):
                 film_io.write_image(destination, object(), "JPEG")
 
         self.assertEqual(destination.read_bytes(), b"competitor")
+        self.assertEqual(list(self.folder.glob(".*.tmp")), [])
+
+    def test_write_image_does_not_overwrite_destination_created_after_final_check(self):
+        destination = self.folder / "IMG_crop.jpg"
+        checks = 0
+        original_check = film_io.require_output_available
+
+        def create_competitor_after_final_check(path):
+            nonlocal checks
+            result = original_check(path)
+            checks += 1
+            if checks == 2:
+                destination.write_bytes(b"competitor")
+            return result
+
+        with (
+            mock.patch.object(
+                film_io,
+                "require_output_available",
+                side_effect=create_competitor_after_final_check,
+            ),
+            mock.patch.object(film_io, "detection_image", side_effect=lambda image: image),
+            mock.patch.object(
+                film_io.cv2,
+                "imencode",
+                return_value=(True, _EncodedBytes()),
+                create=True,
+            ),
+        ):
+            with self.assertRaises(FileExistsError):
+                film_io.write_image(destination, object(), "JPEG")
+
+        self.assertEqual(checks, 2)
+        self.assertEqual(destination.read_bytes(), b"competitor")
+        self.assertEqual(list(self.folder.glob(".*.tmp")), [])
+
+    def test_write_image_falls_back_when_hard_links_are_unsupported(self):
+        destination = self.folder / "IMG_crop.jpg"
+
+        with (
+            mock.patch.object(
+                film_io.os,
+                "link",
+                side_effect=OSError(errno.ENOTSUP, "hard links unsupported"),
+            ),
+            mock.patch.object(film_io, "detection_image", side_effect=lambda image: image),
+            mock.patch.object(
+                film_io.cv2,
+                "imencode",
+                return_value=(True, _EncodedBytes()),
+                create=True,
+            ),
+        ):
+            try:
+                film_io.write_image(destination, object(), "JPEG")
+            except OSError as exc:
+                self.fail(f"hard-link failure did not fall back: {exc}")
+
+        self.assertEqual(destination.read_bytes(), b"new")
         self.assertEqual(list(self.folder.glob(".*.tmp")), [])
 
     def _run_process_file(self, source, *, output=None, options=None):
