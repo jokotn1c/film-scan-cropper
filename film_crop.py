@@ -483,6 +483,8 @@ def main() -> None:
     if not math.isfinite(ratio) or ratio <= 0:
         parser.error("ratio must be a finite positive number")
     if args.input.is_file():
+        if args.output_dir is not None:
+            parser.error("--output-dir requires a folder input")
         if args.input.suffix.lower() not in SUPPORTED_EXTENSIONS:
             suffix = args.input.suffix or "(none)"
             parser.error(f"unsupported input extension: {suffix}")
@@ -501,6 +503,8 @@ def main() -> None:
             return
         process_one(args.input, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border, not args.no_auto_rotate)
     elif args.input.is_dir():
+        if args.output is not None:
+            parser.error("--output requires a single-file input")
         out_dir = args.output_dir or args.input / "cropped"
         if out_dir.resolve() == args.input.resolve():
             parser.error("--output-dir must be different from the input folder")

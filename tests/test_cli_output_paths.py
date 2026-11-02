@@ -164,6 +164,35 @@ class CliOutputPathTests(unittest.TestCase):
         process.assert_not_called()
         self.assertIn("unsupported input extension", error)
 
+    def test_single_file_rejects_output_directory_option(self):
+        source = self.folder / "source.jpg"
+        source.write_bytes(b"source")
+
+        process, error = self._run_main_error(
+            source,
+            "--output-dir",
+            self.folder / "outputs",
+            "--dry-run",
+        )
+
+        process.assert_not_called()
+        self.assertIn("--output-dir requires a folder input", error)
+
+    def test_folder_rejects_single_output_option(self):
+        source_folder = self.folder / "sources"
+        source_folder.mkdir()
+        (source_folder / "frame.jpg").write_bytes(b"source")
+
+        process, error = self._run_main_error(
+            source_folder,
+            "--output",
+            self.folder / "chosen.jpg",
+            "--dry-run",
+        )
+
+        process.assert_not_called()
+        self.assertIn("--output requires a single-file input", error)
+
     def test_dry_run_single_prints_numbered_plan_without_processing(self):
         source = self.folder / "source.jpg"
         source.write_bytes(b"source")
