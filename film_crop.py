@@ -471,7 +471,7 @@ def main() -> None:
     def export_format(path):
         if args.output_format != 'auto': return args.output_format
         return 'TIFF16' if path.suffix.lower() in RAW_EXTENSIONS else 'JPEG'
-    if args.padding < 0 or args.padding >= .45:
+    if not 0 <= args.padding < .45:
         parser.error("--padding must be between 0 and 0.45")
     if not 0 <= args.top_trim < .1:
         parser.error("--top-trim must be between 0 and 0.1 (exclusive)")
@@ -479,9 +479,9 @@ def main() -> None:
         parser.error("--bottom-trim must be between 0 and 0.1 (exclusive)")
     if args.format == "auto" and (args.ratio is not None or args.corners is not None or args.orientation != "auto"):
         parser.error("auto format requires automatic ratio, corners and orientation; use a specified format for overrides")
-    ratio = args.ratio or FORMATS.get(args.format,1.5)
-    if ratio <= 0:
-        parser.error("ratio must be positive")
+    ratio = args.ratio if args.ratio is not None else FORMATS.get(args.format,1.5)
+    if not math.isfinite(ratio) or ratio <= 0:
+        parser.error("ratio must be a finite positive number")
     if args.input.is_file():
         fmt = export_format(args.input)
         if args.output:

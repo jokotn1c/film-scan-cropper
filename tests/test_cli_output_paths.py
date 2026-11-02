@@ -99,6 +99,62 @@ class CliOutputPathTests(unittest.TestCase):
         )
         self.assertEqual(occupied.read_bytes(), b"original")
 
+    def test_zero_ratio_is_rejected(self):
+        source = self.folder / "source.jpg"
+        source.write_bytes(b"source")
+
+        process, error = self._run_main_error(
+            source,
+            "--ratio",
+            "0",
+            "--dry-run",
+        )
+
+        process.assert_not_called()
+        self.assertIn("finite positive", error)
+
+    def test_nan_ratio_is_rejected(self):
+        source = self.folder / "source.jpg"
+        source.write_bytes(b"source")
+
+        process, error = self._run_main_error(
+            source,
+            "--ratio",
+            "nan",
+            "--dry-run",
+        )
+
+        process.assert_not_called()
+        self.assertIn("finite positive", error)
+
+    def test_infinite_ratio_is_rejected(self):
+        source = self.folder / "source.jpg"
+        source.write_bytes(b"source")
+
+        process, error = self._run_main_error(
+            source,
+            "--ratio",
+            "inf",
+            "--dry-run",
+        )
+
+        process.assert_not_called()
+        self.assertIn("finite positive", error)
+
+    def test_nan_padding_is_rejected(self):
+        source = self.folder / "source.jpg"
+        source.write_bytes(b"source")
+
+        process, error = self._run_main_error(
+            source,
+            "--padding",
+            "nan",
+            "--dry-run",
+        )
+
+        process.assert_not_called()
+        self.assertIn("between 0 and 0.45", error)
+
     def test_dry_run_single_prints_numbered_plan_without_processing(self):
         source = self.folder / "source.jpg"
         source.write_bytes(b"source")
