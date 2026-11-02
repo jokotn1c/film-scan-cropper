@@ -483,6 +483,9 @@ def main() -> None:
     if not math.isfinite(ratio) or ratio <= 0:
         parser.error("ratio must be a finite positive number")
     if args.input.is_file():
+        if args.input.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            suffix = args.input.suffix or "(none)"
+            parser.error(f"unsupported input extension: {suffix}")
         fmt = export_format(args.input)
         if args.output:
             try:

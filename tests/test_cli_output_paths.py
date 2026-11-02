@@ -155,6 +155,15 @@ class CliOutputPathTests(unittest.TestCase):
         process.assert_not_called()
         self.assertIn("between 0 and 0.45", error)
 
+    def test_dry_run_rejects_unsupported_single_file_extension(self):
+        source = self.folder / "notes.txt"
+        source.write_bytes(b"not an image")
+
+        process, error = self._run_main_error(source, "--dry-run")
+
+        process.assert_not_called()
+        self.assertIn("unsupported input extension", error)
+
     def test_dry_run_single_prints_numbered_plan_without_processing(self):
         source = self.folder / "source.jpg"
         source.write_bytes(b"source")
