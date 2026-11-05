@@ -8,7 +8,8 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, font as tkfont
+from film_ui_scale import layout_scale, choose_latin_font, choose_chinese_font, register_bundled_font
 import uuid
 
 from PIL import Image, ImageTk
@@ -32,8 +33,16 @@ LINE = '#414141'
 class ModernFilmApp:
     def __init__(self, root):
         self.root = root
+        register_bundled_font()
+        families = set(tkfont.families(root))
+        self.latin_font = choose_latin_font(families)
+        self.chinese_font = choose_chinese_font(families)
+        self.ui_font = tkfont.Font(root=root, family=self.chinese_font, size=16)
+        self.heading_font = tkfont.Font(root=root, family=self.chinese_font, size=19, weight='bold')
+        self.scale = 1.0
+        self._resize_job = None
         root.title('FilmCrop ' + VERSION + ' · Preview')
-        root.geometry('1280x800')
+        root.geometry('1440x900')
         root.minsize(900, 580)
         root.configure(bg=BG)
         self.lang = 'zh'
@@ -62,6 +71,8 @@ class ModernFilmApp:
         self.translated_widgets = []
         self._style()
         self._build()
+        self._capture_layout(root)
+        root.bind('<Configure>', self._window_resized, add='+')
         self.refresh_language()
         self.root.protocol('WM_DELETE_WINDOW', self.close)
         self.root.after(100, self.poll)
@@ -82,7 +93,7 @@ class ModernFilmApp:
     def _style(self):
         style = ttk.Style(self.root)
         style.theme_use('clam')
-        style.configure('.', font=('Helvetica Neue', 12), background=BG, foreground=FG)
+        style.configure('.', font=self.ui_font, background=BG, foreground=FG)
         style.configure('TFrame', background=BG)
         style.configure('Panel.TFrame', background=PANEL)
         style.configure('TLabel', background=BG, foreground=FG)
@@ -100,60 +111,68 @@ class ModernFilmApp:
         style.configure('TSeparator', background=LINE)
 
     def _build(self):
-        toolbar = ttk.Frame(self.root, padding=(16, 10))
+        toolbar = ttk.Frame(self.root, padding=(20, 12))
         toolbar.pack(fill='x')
-        self.add_button = self.button(toolbar, 'add', self.add_files)
-        self.folder_button = self.button(toolbar, 'folder', self.add_folder)
-        self.remove_button = self.button(toolbar, 'remove', self.remove)
-        self.clear_button = self.button(toolbar, 'clear', self.clear)
-        for widget in (self.add_button, self.folder_button, self.remove_button, self.clear_button):
-            widget.pack(side='left', padx=(0, 6))
+        self.label(toolbar, 'language', style='Muted.TLabel').pack(side='right', padx=8)
         self.lang_combo = ttk.Button(toolbar, text='中文 / English', command=self.change_language)
         self.lang_combo.pack(side='right')
-        self.label(toolbar, 'language', style='Muted.TLabel').pack(side='right', padx=8)
-        self.label(toolbar, 'drop', style='Muted.TLabel').pack(side='right', padx=18)
+        ttk.Label(toolbar, text='FilmCrop', font=self.heading_font).pack(anchor='center')
         ttk.Separator(self.root).pack(fill='x')
         content = ttk.Frame(self.root)
         content.pack(fill='both', expand=True)
-        left = ttk.Frame(content, width=225, padding=(12, 14))
+        self.left_panel = ttk.Frame(content, width=265, padding=(18, 20))
+        left = self.left_panel
         left.pack(side='left', fill='y'); left.pack_propagate(False)
+        actions = ttk.Frame(left)
+        actions.pack(fill='x', pady=(0, 20))
+        self.add_button = self.button(actions, 'add', self.add_files)
+        self.folder_button = self.button(actions, 'folder', self.add_folder)
+        self.add_button.pack(fill='x', pady=(0, 7))
+        self.folder_button.pack(fill='x')
         self.files_label = self.label(left, 'files')
         self.files_label.pack(anchor='w', pady=(0, 10))
         self.listbox = tk.Listbox(left, bg=BG, fg=FG, selectbackground='#444444', selectforeground='white',
                                   highlightthickness=0, borderwidth=0, activestyle='none',
-                                  font=('Helvetica Neue', 11), exportselection=False)
+                                  font=self.ui_font, exportselection=False)
         self.listbox.pack(fill='both', expand=True)
         self.listbox.bind('<<ListboxSelect>>', self.select_file)
+        list_actions = ttk.Frame(left)
+        list_actions.pack(fill='x', pady=(10, 0))
+        self.remove_button = self.button(list_actions, 'remove', self.remove)
+        self.clear_button = self.button(list_actions, 'clear', self.clear)
+        self.remove_button.pack(side='left', fill='x', expand=True, padx=(0, 4))
+        self.clear_button.pack(side='left', fill='x', expand=True, padx=(4, 0))
         ttk.Separator(content, orient='vertical').pack(side='left', fill='y')
-        right = ttk.Frame(content, width=280, padding=(18, 16))
+        self.right_panel = ttk.Frame(content, width=340, padding=(22, 22))
+        right = self.right_panel
         right.pack(side='right', fill='y'); right.pack_propagate(False)
         ttk.Separator(content, orient='vertical').pack(side='right', fill='y')
-        self.label(right, 'crop_settings', font=('Helvetica Neue', 13, 'bold')).pack(anchor='w', pady=(0, 12))
-        self.label(right, 'format').pack(anchor='w', pady=(0, 5))
-        self.format_combo = ttk.Combobox(right, state='readonly')
-        self.format_combo.pack(fill='x', pady=(0, 12))
+        self.label(right, 'crop_settings', font=self.heading_font).pack(anchor='w', pady=(0, 16))
+        self.label(right, 'format').pack(anchor='w', pady=(0, 6))
+        self.format_combo = ttk.Combobox(right, state='readonly', font=self.ui_font)
+        self.format_combo.pack(fill='x', pady=(0, 16))
         self.format_combo.bind('<<ComboboxSelected>>', self.format_changed)
         self.rotate_check = ttk.Checkbutton(right, variable=self.auto_rotate)
         self.translated_widgets.append((self.rotate_check, 'rotate'))
-        self.rotate_check.pack(anchor='w')
+        self.rotate_check.pack(anchor='w', pady=(0, 6))
         self.border_check = ttk.Checkbutton(right, variable=self.keep_border)
         self.translated_widgets.append((self.border_check, 'border'))
-        self.border_check.pack(anchor='w', pady=(0, 10))
+        self.border_check.pack(anchor='w', pady=(0, 14))
         self.reset_button = self.button(right, 'reset', self.reset_crop)
-        self.reset_button.pack(fill='x', pady=(2, 10))
-        self.note = self.label(right, 'manual_note', wraplength=240, style='Muted.TLabel', justify='left')
-        self.note.pack(anchor='w', pady=(0, 12))
-        ttk.Separator(right).pack(fill='x', pady=(0, 16))
-        self.label(right, 'export_settings', font=('Helvetica Neue', 13, 'bold')).pack(anchor='w', pady=(0, 12))
-        self.label(right, 'export').pack(anchor='w', pady=(0, 5))
-        self.export_combo = ttk.Combobox(right, textvariable=self.export, values=('TIFF16', 'JPEG'), state='readonly')
-        self.export_combo.pack(fill='x', pady=(0, 14))
-        self.label(right, 'location').pack(anchor='w', pady=(0, 5))
-        self.path_entry = ttk.Entry(right, textvariable=self.outdir)
+        self.reset_button.pack(fill='x', pady=(0, 10))
+        self.note = self.label(right, 'manual_note', wraplength=290, style='Muted.TLabel', justify='left')
+        self.note.pack(anchor='w', pady=(0, 16))
+        ttk.Separator(right).pack(fill='x', pady=(0, 20))
+        self.label(right, 'export_settings', font=self.heading_font).pack(anchor='w', pady=(0, 16))
+        self.label(right, 'export').pack(anchor='w', pady=(0, 6))
+        self.export_combo = ttk.Combobox(right, textvariable=self.export, values=('TIFF16', 'JPEG'), state='readonly', font=self.ui_font)
+        self.export_combo.pack(fill='x', pady=(0, 16))
+        self.label(right, 'location').pack(anchor='w', pady=(0, 6))
+        self.path_entry = ttk.Entry(right, textvariable=self.outdir, font=self.ui_font)
         self.path_entry.pack(fill='x')
         self.choose_button = self.button(right, 'choose', self.choose_output)
-        self.choose_button.pack(anchor='e', pady=(6, 0))
-        center = ttk.Frame(content, padding=(16, 12))
+        self.choose_button.pack(anchor='e', pady=(8, 0))
+        center = ttk.Frame(content, padding=(18, 18))
         center.pack(side='left', fill='both', expand=True)
         self.canvas = tk.Canvas(center, bg='#181818', highlightthickness=0, cursor='crosshair')
         self.canvas.pack(fill='both', expand=True)
@@ -162,8 +181,8 @@ class ModernFilmApp:
         self.canvas.bind('<B1-Motion>', self.drag_move)
         self.canvas.bind('<ButtonRelease-1>', self.drag_end)
         self.hint = self.label(center, 'draw', style='Muted.TLabel')
-        self.hint.pack(anchor='w', pady=(8, 0))
-        footer = ttk.Frame(self.root, padding=(16, 10))
+        self.hint.pack(anchor='center', pady=(12, 0))
+        footer = ttk.Frame(self.root, padding=(20, 14))
         ttk.Separator(self.root).pack(fill='x')
         footer.pack(fill='x')
         self.status = ttk.Label(footer, style='Muted.TLabel')
@@ -178,7 +197,56 @@ class ModernFilmApp:
             widget.drop_target_register(DND_FILES)
             widget.dnd_bind('<<Drop>>', self.on_drop)
 
+    def _capture_layout(self, widget):
+        if not hasattr(self, '_scaled_layout'):
+            self._scaled_layout = []
+        for child in widget.winfo_children():
+            info = child.pack_info() if child.winfo_manager() == 'pack' else None
+            if info:
+                margins = {key: info[key] for key in ('padx', 'pady')}
+                self._scaled_layout.append((child, margins))
+            if isinstance(child, ttk.Frame):
+                child._base_padding = tuple(map(int, child.cget('padding'))) if child.cget('padding') else ()
+            self._capture_layout(child)
+
+    @staticmethod
+    def _scaled_padding(value, scale):
+        values = value if isinstance(value, (tuple, list)) else (value,)
+        result = tuple(round(int(v) * scale) for v in values)
+        return result if len(result) > 1 else result[0]
+
+    def _window_resized(self, event):
+        if event.widget is not self.root:
+            return
+        if self._resize_job:
+            self.root.after_cancel(self._resize_job)
+        self._resize_job = self.root.after(60, self._apply_scale)
+
+    def _apply_scale(self):
+        self._resize_job = None
+        scale = layout_scale(self.root.winfo_width(), self.root.winfo_height())
+        self.scale = scale
+        self.ui_font.configure(size=max(8, round(16 * scale)))
+        self.heading_font.configure(size=max(10, round(19 * scale)))
+        self.left_panel.configure(width=round(265 * scale))
+        self.right_panel.configure(width=round(340 * scale))
+        self.note.configure(wraplength=round(290 * scale))
+        for widget, margins in self._scaled_layout:
+            widget.pack_configure(**{key: self._scaled_padding(value, scale) for key, value in margins.items()})
+            if isinstance(widget, ttk.Frame) and getattr(widget, '_base_padding', ()):
+                widget.configure(padding=self._scaled_padding(widget._base_padding, scale))
+        style = ttk.Style(self.root)
+        style.configure('TButton', padding=(round(10*scale), round(7*scale)))
+        style.configure('Primary.TButton', padding=(round(18*scale), round(9*scale)))
+        style.configure('TCombobox', padding=round(5*scale))
+        style.configure('TEntry', padding=round(6*scale))
+        style.configure('TCheckbutton', padding=(0, round(4*scale)))
+        self.redraw()
+
     def refresh_language(self):
+        family = self.chinese_font if self.lang == 'zh' else self.latin_font
+        self.ui_font.configure(family=family)
+        self.heading_font.configure(family=family)
         for widget, key in self.translated_widgets:
             widget.configure(text=self.tr(key))
         choices = list(FORMAT_CHOICES)
@@ -295,7 +363,7 @@ class ModernFilmApp:
         canvas.delete('all')
         if self.preview_image is None:
             canvas.create_text(max(canvas.winfo_width(), 200)//2, max(canvas.winfo_height(), 200)//2,
-                               text=self.tr('select'), fill=MUTED, font=('Helvetica Neue', 13))
+                               text=self.tr('select'), fill=MUTED, font=self.ui_font)
             return
         available = (max(1, canvas.winfo_width()-32), max(1, canvas.winfo_height()-32))
         img = self.preview_image.copy(); img.thumbnail(available)
@@ -310,7 +378,7 @@ class ModernFilmApp:
             ax,ay,bx,by = left+x0*width,top+y0*height,left+x1*width,top+y1*height
             canvas.create_rectangle(ax, ay, bx, by, outline='white', width=2)
             for x,y in ((ax,ay),(bx,ay),(bx,by),(ax,by)):
-                canvas.create_rectangle(x-5,y-5,x+5,y+5, fill='white', outline='#444444')
+                canvas.create_rectangle(x-5*self.scale,y-5*self.scale,x+5*self.scale,y+5*self.scale, fill='white', outline='#444444')
 
     def point(self, event):
         if not self.preview_rect: return None
@@ -329,7 +397,7 @@ class ModernFilmApp:
             _,_,w,h = self.preview_rect
             distances = [((p[0]-x)*w)**2+((p[1]-y)*h)**2 for x,y in corners]
             nearest = min(range(4), key=lambda i: distances[i])
-            if distances[nearest] <= 18**2:
+            if distances[nearest] <= (18*self.scale)**2:
                 self.drag_corner = nearest
                 self.drag_anchor = corners[(nearest+2)%4]
         if self.drag_corner is None: self.drag_anchor = p
