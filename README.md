@@ -1,8 +1,31 @@
 # FilmCrop 1.9
 
+中文 | [English](README.en.md)
+
 自动识别相机翻拍胶片的画面边框，转正并裁切。提供 Windows 界面和 macOS 构建配置，支持批量导入 RAW 与普通JPG。
 
-## 使用
+## macOS 测试版（Apple Silicon）
+
+独立的测试版提供简洁深色界面、中英文界面切换，以及逐张图片的手动矩形裁切。经典版界面和构建仍然保留。
+
+1. 添加图片或文件夹，在左侧选择图片。
+2. 在预览图上拖出选区，拖动角点调整；选择“恢复自动”可重新使用自动检测。
+3. 选择输出文件夹和 TIFF16 或 JPEG，开始裁切。
+
+手动选区直接裁切按方向校正后的原图；自动转正、画幅比例和边框扩展仅用于自动裁切。测试版遇到同名输出会自动编号，保留已有文件。真实 RAW、实际鼠标拖动及完整批处理仍需进一步验证；应用使用临时签名，尚未经过 Apple 公证。
+
+**下载状态：** [测试版发布页](https://github.com/jokotn1c/film-scan-cropper/releases/tag/v1.9.1-preview.2)的应用上传失败，当前没有可下载的测试包。该标签指向旧版 main，其自动生成的源码压缩包不包含测试版。测试版源码请见[草稿 PR #2](https://github.com/jokotn1c/film-scan-cropper/pull/2)，可从该分支自行运行或构建：
+
+```shell
+python3 -m pip install -r requirements.txt -r requirements-build.txt
+python3 film_gui_modern.py
+# 构建 Apple Silicon 应用
+python3 -m PyInstaller --noconfirm --clean FilmCrop-Preview-mac-arm64.spec
+```
+
+更多说明见 [MACOS-PREVIEW.md](MACOS-PREVIEW.md)。
+
+## 经典版使用
 
 1. 将 RAW、JPG或文件夹拖入窗口。
 2. 选择输出位置。
@@ -35,7 +58,7 @@ python film_crop.py input.jpg --format "6x4.5/半格" --output half.jpg
 - Windows：安装构建依赖后运行 build_exe.ps1。
 - macOS Apple Silicon：运行 build_macos_arm64.sh，或在 GitHub Actions 手动运行 Build macOS Apple Silicon，从成功运行的 Artifacts 下载产物。
 
-## 图像处理
+## 经典版图像处理
 
 - RAW 兼容性取决于 LibRaw 支持的相机型号和压缩方式。
 - 使用相机白平衡；不读取 Lightroom / ACR 调整。
