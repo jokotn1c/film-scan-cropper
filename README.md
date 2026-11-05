@@ -14,7 +14,7 @@
 
 手动选区直接裁切按方向校正后的原图；自动转正、画幅比例和边框扩展仅用于自动裁切。测试版遇到同名输出会自动编号，保留已有文件。真实 RAW、实际鼠标拖动及完整批处理仍需进一步验证；应用使用临时签名，尚未经过 Apple 公证。
 
-**下载状态：** [测试版发布页](https://github.com/jokotn1c/film-scan-cropper/releases/tag/v1.9.1-preview.2)的应用上传失败，当前没有可下载的测试包。该标签指向旧版 main，其自动生成的源码压缩包不包含测试版。测试版源码请见[草稿 PR #2](https://github.com/jokotn1c/film-scan-cropper/pull/2)，可从该分支自行运行或构建：
+**下载：** 在[测试版发布页](https://github.com/jokotn1c/film-scan-cropper/releases/tag/v1.9.1-preview.2)的 Assets 中下载 `FilmCrop-Preview-mac-arm64.zip`。该标签指向旧版 main，其自动生成的源码压缩包不包含测试版。测试版源码请见[草稿 PR #2](https://github.com/jokotn1c/film-scan-cropper/pull/2)，可从该分支自行运行或构建：
 
 ```shell
 python3 -m pip install -r requirements.txt -r requirements-build.txt

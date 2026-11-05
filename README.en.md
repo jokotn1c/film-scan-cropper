@@ -14,7 +14,7 @@ This separate preview offers a simple dark interface, a Chinese/English language
 
 Manual selections crop the oriented original image directly; automatic straightening, aspect ratio, and border expansion apply only to automatic crops. The preview numbers output filenames on collisions to preserve existing files. Real RAW samples, physical mouse dragging, and full batch workflows need further verification. The app is ad-hoc signed and has not been notarized by Apple.
 
-**Download status:** Uploading the app to the [preview release](https://github.com/jokotn1c/film-scan-cropper/releases/tag/v1.9.1-preview.2) failed, so no test binary is currently available there. That tag points to the older main branch; its generated source archives do not contain the preview. The preview source is in [draft PR #2](https://github.com/jokotn1c/film-scan-cropper/pull/2). Run or build it from that branch:
+**Download:** Download `FilmCrop-Preview-mac-arm64.zip` from Assets on the [preview release](https://github.com/jokotn1c/film-scan-cropper/releases/tag/v1.9.1-preview.2). That tag points to the older main branch; its generated source archives do not contain the preview. The preview source is in [draft PR #2](https://github.com/jokotn1c/film-scan-cropper/pull/2). Run or build it from that branch:
 
 ```shell
 python3 -m pip install -r requirements.txt -r requirements-build.txt
