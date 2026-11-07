@@ -45,7 +45,7 @@ class DragInteractionTests(unittest.TestCase):
     def test_drag_and_resize_are_recorded_for_selected_image(self):
         from types import SimpleNamespace
         from film_gui_modern import ModernFilmApp
-        fake = SimpleNamespace(running=False, preview_rect=(10, 20, 200, 100), current='frame',
+        fake = SimpleNamespace(scale=1.0, running=False, preview_rect=(10, 20, 200, 100), current='frame',
                                boxes={}, states={}, drag_anchor=None, drag_corner=None, drag_box=None,
                                update_list=lambda: None, redraw=lambda: None)
         fake.point = lambda event: ModernFilmApp.point(fake, event)
