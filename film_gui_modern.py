@@ -45,8 +45,9 @@ class ModernFilmApp:
         self.brand_font = tkfont.Font(root=root, family=self.latin_font, size=19, weight='bold')
         self.scale = 1.0
         self._resize_job = None
+        self._redraw_job = None
         root.title('FilmCrop ' + VERSION + ' · Preview')
-        root.geometry('1440x900')
+        root.geometry('1080x700' if sys.platform == 'win32' else '1440x900')
         root.minsize(900, 580)
         root.configure(bg=BG)
         self.lang = 'zh'
@@ -76,7 +77,12 @@ class ModernFilmApp:
         self._style()
         self._build()
         self._capture_layout(root)
-        root.bind('<Configure>', self._window_resized, add='+')
+        if sys.platform == 'win32':
+            # Windows uses a fixed control layout. Pack allocates the remaining
+            # space to the file list and preview without resizing every widget.
+            self._apply_scale()
+        else:
+            root.bind('<Configure>', self._window_resized, add='+')
         self.refresh_language()
         self.root.protocol('WM_DELETE_WINDOW', self.close)
         self.root.after(100, self.poll)
@@ -173,15 +179,22 @@ class ModernFilmApp:
         self.export_combo = ttk.Combobox(right, textvariable=self.export, values=('TIFF16', 'JPEG'), state='readonly', font=self.latin_ui_font)
         self.export_combo.pack(fill='x', pady=(0, 16))
         self.label(right, 'location').pack(anchor='w', pady=(0, 6))
-        self.path_entry = ttk.Entry(right, textvariable=self.outdir, font=self.ui_font)
-        self.path_entry.pack(fill='x')
-        self.choose_button = self.button(right, 'choose', self.choose_output)
-        self.choose_button.pack(anchor='e', pady=(8, 0))
+        path_row = ttk.Frame(right) if sys.platform == 'win32' else right
+        if path_row is not right:
+            path_row.pack(fill='x')
+        self.path_entry = ttk.Entry(path_row, textvariable=self.outdir, font=self.ui_font)
+        self.choose_button = self.button(path_row, 'choose', self.choose_output)
+        if sys.platform == 'win32':
+            self.choose_button.pack(side='right', padx=(6, 0))
+            self.path_entry.pack(side='left', fill='x', expand=True)
+        else:
+            self.path_entry.pack(fill='x')
+            self.choose_button.pack(anchor='e', pady=(8, 0))
         center = ttk.Frame(content, padding=(18, 18))
         center.pack(side='left', fill='both', expand=True)
         self.canvas = tk.Canvas(center, bg='#181818', highlightthickness=0, cursor='crosshair')
         self.canvas.pack(fill='both', expand=True)
-        self.canvas.bind('<Configure>', lambda e: self.redraw())
+        self.canvas.bind('<Configure>', self._preview_resized)
         self.canvas.bind('<ButtonPress-1>', self.drag_start)
         self.canvas.bind('<B1-Motion>', self.drag_move)
         self.canvas.bind('<ButtonRelease-1>', self.drag_end)
@@ -227,14 +240,24 @@ class ModernFilmApp:
             self.root.after_cancel(self._resize_job)
         self._resize_job = self.root.after(60, self._apply_scale)
 
+    def _preview_resized(self, _event=None):
+        # Render the latest canvas dimensions once per frame, even when several
+        # geometry notifications arrive before Tk has finished laying out.
+        if self._redraw_job is None:
+            self._redraw_job = self.root.after(16, self._redraw_preview)
+
+    def _redraw_preview(self):
+        self._redraw_job = None
+        self.redraw()
+
     def _apply_scale(self):
         self._resize_job = None
-        scale = layout_scale(self.root.winfo_width(), self.root.winfo_height())
+        scale = .55 if sys.platform == 'win32' else layout_scale(self.root.winfo_width(), self.root.winfo_height())
         self.scale = scale
         self._apply_font_scale()
-        self.left_panel.configure(width=round(265 * scale))
-        self.right_panel.configure(width=round(340 * scale))
-        self.note.configure(wraplength=round(290 * scale))
+        self.left_panel.configure(width=200 if sys.platform == 'win32' else round(265 * scale))
+        self.right_panel.configure(width=280 if sys.platform == 'win32' else round(340 * scale))
+        self.note.configure(wraplength=250 if sys.platform == 'win32' else round(290 * scale))
         for widget, margins in self._scaled_layout:
             widget.pack_configure(**{key: self._scaled_padding(value, scale) for key, value in margins.items()})
             if isinstance(widget, ttk.Frame) and getattr(widget, '_base_padding', ()):
@@ -248,13 +271,17 @@ class ModernFilmApp:
         self.redraw()
 
     def _apply_font_scale(self):
-        # Normalize Windows font metrics so the export controls fit the layout.
-        factor = (.8 if self.lang == 'en' else .875) if sys.platform == 'win32' else 1.
-        self.ui_font.configure(size=max(8, round(16 * self.scale * factor)))
-        self.heading_font.configure(size=max(10, round(19 * self.scale * factor)))
-        latin_factor = .8 if sys.platform == 'win32' else 1.
-        self.latin_ui_font.configure(size=max(8, round(16 * self.scale * latin_factor)))
-        self.brand_font.configure(size=max(10, round(19 * self.scale * latin_factor)))
+        if sys.platform == 'win32':
+            # Point sizes follow system DPI, never the size of the app window.
+            self.ui_font.configure(size=10)
+            self.heading_font.configure(size=12)
+            self.latin_ui_font.configure(size=10)
+            self.brand_font.configure(size=14)
+        else:
+            self.ui_font.configure(size=max(8, round(16 * self.scale)))
+            self.heading_font.configure(size=max(10, round(19 * self.scale)))
+            self.latin_ui_font.configure(size=max(8, round(16 * self.scale)))
+            self.brand_font.configure(size=max(10, round(19 * self.scale)))
 
     def refresh_language(self):
         family = self.chinese_font if self.lang == 'zh' else self.latin_font
