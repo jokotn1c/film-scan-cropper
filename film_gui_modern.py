@@ -550,13 +550,13 @@ class ModernFilmApp:
 
 def main():
     if '--windows-preview-check' in sys.argv:
-        from check_windows_preview import main as preview_check
+        from tools.check_windows_preview import main as preview_check
         preview_check()
         return
     root = create_root()
     app = ModernFilmApp(root)
     if '--startup-test' in sys.argv:
-        from film_diagnostic import startup_test
+        from tools.film_diagnostic import startup_test
         startup_test(root, sys.argv[sys.argv.index('--startup-test')+1])
     root.mainloop()
 

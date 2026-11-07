@@ -74,7 +74,7 @@ python film_crop.py scans --format auto --output-dir cropped --existing skip
 
 ## 验证
 
-- 24 项单元测试：入口一致性、手动选区、兼容参数、16 位 / RAW ICC、同名策略、并发与编码失败。
+- 26 项单元测试：入口一致性、手动选区、兼容参数、16 位 / RAW ICC、同名策略、并发与编码失败。
 - 003–007 共 69 张：画幅、边界、旋转、复核判断完全匹配原版已验收记录；普通 / 留边 1200 像素预览裁切逐像素一致。
 - 4 张暗片继续按原流程暂缓识别，不改变批处理后的指定画幅行为。
 - `_7R30575` 原片与横竖 / 明暗变体共 14 项通过。
@@ -82,5 +82,5 @@ python film_crop.py scans --format auto --output-dir cropped --existing skip
 - 仅保留两种裁切缩略图；本次全尺寸测试输出均在检验后清理。
 - 原始备份 ZIP 内全部 41 个源码 / 资源文件的 SHA256 与原工作副本一致。
 
-复现入口：`python -m unittest test_pipeline test_manual_crop test_ui_scale test_sprocket_panorama`。
+复现入口：`python -m unittest discover -s tests`。
 完整样片回归与重复测速脚本随 `performance-tools.zip` 提供，需要原样片目录和项目已有验收报告。

@@ -1,4 +1,4 @@
-# FilmCrop 1.9
+# FilmCrop
 
 [中文](README.md) | English
 
@@ -23,7 +23,7 @@ python3 film_gui_modern.py
 python3 -m PyInstaller --noconfirm --clean FilmCrop-Preview-mac-arm64.spec
 ```
 
-See [MACOS-PREVIEW.md](MACOS-PREVIEW.md) for more details.
+See [MACOS-PREVIEW.md](docs/MACOS-PREVIEW.md) for more details.
 
 ## Using the classic version
 
@@ -72,3 +72,20 @@ python film_crop.py input.jpg --format "6x4.5/半格" --output half.jpg
 Photo processing is local; the application does not upload photos or use telemetry. Installing dependencies and building with GitHub Actions require network access.
 
 Processing reports and diagnostic output may contain selected file paths, filenames, and error details. Review them before sharing. Third-party licenses are included with the package.
+
+## Project layout
+
+- `film_*.py`: cropping engine, command-line interface, and desktop applications.
+- `tests/`: unit tests.
+- `tools/`: diagnostic, UI-check, and macOS startup-check utilities.
+- `docs/`: build, preview, and performance notes.
+
+## Development checks
+
+After installing `requirements.txt`, run from the repository root:
+
+```shell
+python -m unittest discover -s tests
+```
+
+See [docs/MACOS-ARM.md](docs/MACOS-ARM.md) for the Apple Silicon build and validation workflow.

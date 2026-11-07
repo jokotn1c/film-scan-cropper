@@ -9,7 +9,8 @@ on:
       - 'requirements*.txt'
       - 'FilmCrop-RAW-mac-arm64.spec'
       - 'build_macos_arm64.sh'
-      - 'check_macos_startup.py'
+      - 'tools/**'
+      - 'tests/**'
       - 'assets/**'
       - '.github/workflows/build-macos-arm64.yml'
 
@@ -30,8 +31,11 @@ jobs:
       - name: Build app
         run: bash build_macos_arm64.sh
 
+      - name: Run unit tests
+        run: python -m unittest discover -s tests
+
       - name: Check packaged app startup
-        run: python check_macos_startup.py
+        run: python tools/check_macos_startup.py
 
       - name: Read release version
         id: release

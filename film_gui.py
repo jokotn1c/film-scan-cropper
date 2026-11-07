@@ -481,19 +481,19 @@ def main():
     # A packaged diagnostic mode runs the actual decoder and engine without UI.
     # It is also useful when reporting unsupported RAW files.
     if '--layout-test' in sys.argv:
-        from film_diagnostic import layout_test
+        from tools.film_diagnostic import layout_test
         layout_test(sys.argv[sys.argv.index('--layout-test')+1:]); return
     if '--diagnostic' in sys.argv:
-        from film_diagnostic import main as diagnostic
+        from tools.film_diagnostic import main as diagnostic
         diagnostic(sys.argv[sys.argv.index('--diagnostic')+1:]); return
     root = create_root()
     app = FilmApp(root)
     if '--startup-test' in sys.argv:
-        from film_diagnostic import startup_test
+        from tools.film_diagnostic import startup_test
         startup_test(root, sys.argv[sys.argv.index('--startup-test')+1])
     # Optional local smoke-test: exercise Tcl drop parsing, controls and queue.
     if '--ui-smoke-test' in sys.argv:
-        from film_diagnostic import ui_smoke_test
+        from tools.film_diagnostic import ui_smoke_test
         ui_smoke_test(root, app, sys.argv[sys.argv.index('--ui-smoke-test')+1:])
     root.mainloop()
 

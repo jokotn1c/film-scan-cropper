@@ -71,3 +71,20 @@ python film_crop.py input.jpg --format 135/6x9 --corners 289,242 1570,242 1570,1
 ```
 
 更多参数可通过 `python film_crop.py --help` 查看。
+
+## 项目结构
+
+- `film_*.py`：裁切引擎、命令行和桌面界面。
+- `tests/`：单元测试。
+- `tools/`：诊断、界面检查和 macOS 启动检查工具。
+- `docs/`：构建、预览版和性能说明。
+
+## 开发检查
+
+安装 `requirements.txt` 中的依赖后，在仓库根目录运行：
+
+```shell
+python -m unittest discover -s tests
+```
+
+macOS Apple Silicon 的构建与检查方法见 [docs/MACOS-ARM.md](docs/MACOS-ARM.md)。

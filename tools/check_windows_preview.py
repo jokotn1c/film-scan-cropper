@@ -13,7 +13,7 @@ from film_gui_modern import ModernFilmApp
 
 def main():
     check_args=sys.argv[sys.argv.index('--windows-preview-check')+1:] if '--windows-preview-check' in sys.argv else []
-    report_dir=Path(check_args[0]) if check_args else Path(__file__).resolve().parent/'validation'
+    report_dir=Path(check_args[0]) if check_args else Path(__file__).resolve().parent.parent/'validation'
     source=Path(check_args[1]) if len(check_args)>1 else Path('F:/datatemp/007/_IMG3592.jpg')
     expected_format=check_args[2] if len(check_args)>2 else '5.6x2.4'
     report_dir.mkdir(exist_ok=True)
