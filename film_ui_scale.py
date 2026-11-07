@@ -1,4 +1,4 @@
-"""Typography and uniform sizing for the macOS preview interface."""
+"""Typography and uniform sizing for the preview interface."""
 import ctypes
 import sys
 from pathlib import Path
@@ -18,17 +18,26 @@ def choose_latin_font(families):
 
 
 def choose_chinese_font(families):
-    for name in ('Songti SC', 'STSong', 'Songti TC', 'Songti SC Regular', 'Georgia'):
+    # Tk exposes localized family names on some Windows installations.
+    for name in ('Microsoft YaHei UI', 'Microsoft YaHei', '微软雅黑 UI', '微软雅黑',
+                 'PingFang SC', '苹方-简', 'Heiti SC', '黑体-简', 'STHeiti',
+                 'SimHei', '黑体', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei'):
         if name in families:
             return name
     return 'TkDefaultFont'
 
 
 def register_bundled_font():
-    if sys.platform != 'darwin':
-        return
     font_path = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent)) / 'assets' / 'EBGaramond.ttf'
     if not font_path.exists():
+        return
+    if sys.platform == 'win32':
+        register = ctypes.WinDLL('gdi32', use_last_error=True).AddFontResourceExW
+        register.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_void_p]
+        register.restype = ctypes.c_int
+        register(str(font_path), 0x10, None)  # FR_PRIVATE: this process only.
+        return
+    if sys.platform != 'darwin':
         return
     cf = ctypes.CDLL('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
     ct = ctypes.CDLL('/System/Library/Frameworks/CoreText.framework/CoreText')

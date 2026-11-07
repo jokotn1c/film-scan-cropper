@@ -387,38 +387,24 @@ def process_one(
     output_format: str = 'auto',
     keep_border: bool = False,
     auto_rotate: bool = True,
-) -> None:
-    from film_io import read_image, detection_image, write_image
-    image, metadata = read_image(path)
-    preview = detection_image(image)
-    if corners is None and (fmt == 'auto' or (orientation == 'auto' and ratio == FORMATS.get(fmt))):
-        from film_engine import locate
-        detection = locate(image, fmt, auto_rotate)
-        ratio = detection['ratio']
-        fmt = detection['format']
-        x0,x1,y0,y1 = detection['bounds']
-        corners = detection.get('corners', [(x0,y0),(x1,y0),(x1,y1),(x0,y1)])
-        print(f"  detected {fmt}, W/H={detection['measured_ratio']:.4f}, roll={detection['rotation_degrees']:+.2f} deg, review={detection['needs_review']}")
+    collision_policy: str = 'overwrite',
+) -> dict:
+    """CLI compatibility entry for the shared image pipeline."""
+    from film_engine import Options
+    from film_pipeline import process_image
+    options = Options(format=fmt, output_format=output_format, keep_border=keep_border,
+                      top_trim=top_trim, bottom_trim=bottom_trim, auto_rotate=auto_rotate,
+                      corners=corners, ratio=ratio, orientation=orientation, padding=padding,
+                      keep_sprockets=keep_sprockets, sprocket_margins=sprocket_margins,
+                      collision_policy=collision_policy)
+    record = process_image(path, options=options, output=output)
+    if record['skipped']:
+        print(f"SKIP {Path(path).name}: {record['output']}")
     else:
-        ratio = oriented_ratio(preview, ratio, orientation)
-    if corners is None:
-        # Explicit custom ratios/orientation retain their established selection semantics.
-        x0,x1,y0,y1 = detect_frame(preview, ratio)
-        corners = [(x0,y0),(x1,y0),(x1,y1),(x0,y1)]
-    if keep_border:
-        from film_engine import border_corners
-        corners, ratio = border_corners(corners, image.shape[:2], fmt, ratio)
-    elif keep_sprockets:
-        corners = expand_for_sprockets(corners, image.shape[:2], fmt, sprocket_margins)
-        ratio = SPROCKET_RATIO_135 if ratio >= 1 else 1 / SPROCKET_RATIO_135
-    result = perspective_crop(image, corners, ratio, padding=padding)
-    if not keep_sprockets and not keep_border:
-        result = trim_borders(result, ratio, top_trim, bottom_trim)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if output_format == 'auto':
-        output_format = 'TIFF16' if output.suffix.lower() in {'.tif', '.tiff'} else 'JPEG'
-    write_image(output, result, output_format, metadata['source_type'] == 'RAW', source=path)
-    print(f"{path.name} -> {output}  ({result.shape[1]}x{result.shape[0]})")
+        if 'measured_ratio' in record:
+            print(f"  detected {record['format']}, W/H={record['measured_ratio']:.4f}, roll={record['rotation_degrees']:+.2f} deg, review={record['needs_review']}")
+        print(f"{Path(path).name} -> {record['output']}  ({record['output_width']}x{record['output_height']})")
+    return record
 
 
 def main() -> None:
@@ -430,6 +416,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, help="output file for a single input")
     parser.add_argument("--output-dir", type=Path, help="output folder for a folder input")
     parser.add_argument("--output-format", choices=['auto', 'TIFF16', 'JPEG'], default='auto', help="default: TIFF16 for RAW, JPEG for raster input")
+    parser.add_argument("--existing", choices=['overwrite', 'number', 'skip', 'error'], default='overwrite', help="same-name output policy (default: overwrite)")
     parser.add_argument("--no-auto-rotate", action="store_true", help="disable small-angle film roll correction")
     parser.add_argument("--keep-border", action='store_true', help="retain 135 perforations or expand a 120 frame border")
     parser.add_argument("--corners", nargs=4, type=parse_point, metavar="X,Y", help="four frame corners: TL TR BR BL")
@@ -464,7 +451,7 @@ def main() -> None:
         output = args.output or output_path(args.input.parent, args.input, fmt, args.format)
         if args.output and args.output_format == 'auto':
             fmt = 'TIFF16' if output.suffix.lower() in {'.tif', '.tiff'} else 'JPEG'
-        process_one(args.input, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border, not args.no_auto_rotate)
+        process_one(args.input, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border, not args.no_auto_rotate, args.existing)
     elif args.input.is_dir():
         out_dir = args.output_dir or args.input / "cropped"
         files = sorted(p for p in args.input.iterdir() if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS)
@@ -474,7 +461,7 @@ def main() -> None:
             try:
                 fmt = export_format(path)
                 output = output_path(out_dir, path, fmt, args.format)
-                process_one(path, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border)
+                process_one(path, output, ratio, args.corners, args.padding, args.format, args.keep_sprockets, tuple(args.sprocket_margin) if args.sprocket_margin else None, args.orientation, args.top_trim, args.bottom_trim, fmt, args.keep_border, not args.no_auto_rotate, args.existing)
             except Exception as exc:
                 print(f"SKIP {path.name}: {exc}")
     else:

@@ -14,7 +14,7 @@ import uuid
 
 from PIL import Image, ImageTk
 from tkinterdnd2 import DND_FILES
-from film_gui import create_root
+from film_gui import create_root, FilmApp
 from film_engine import Options
 from film_io import SUPPORTED_EXTENSIONS, read_image, detection_image
 from film_crop import FORMAT_CHOICES
@@ -33,12 +33,16 @@ LINE = '#414141'
 class ModernFilmApp:
     def __init__(self, root):
         self.root = root
+        if sys.platform == 'win32':
+            FilmApp.set_app_icon(self)
         register_bundled_font()
         families = set(tkfont.families(root))
         self.latin_font = choose_latin_font(families)
         self.chinese_font = choose_chinese_font(families)
         self.ui_font = tkfont.Font(root=root, family=self.chinese_font, size=16)
         self.heading_font = tkfont.Font(root=root, family=self.chinese_font, size=19, weight='bold')
+        self.latin_ui_font = tkfont.Font(root=root, family=self.latin_font, size=16)
+        self.brand_font = tkfont.Font(root=root, family=self.latin_font, size=19, weight='bold')
         self.scale = 1.0
         self._resize_job = None
         root.title('FilmCrop ' + VERSION + ' · Preview')
@@ -86,6 +90,7 @@ class ModernFilmApp:
         return widget
 
     def button(self, parent, key, command, **kwargs):
+        kwargs.setdefault('width', 0)
         widget = ttk.Button(parent, command=command, **kwargs)
         self.translated_widgets.append((widget, key))
         return widget
@@ -116,7 +121,7 @@ class ModernFilmApp:
         self.label(toolbar, 'language', style='Muted.TLabel').pack(side='right', padx=8)
         self.lang_combo = ttk.Button(toolbar, text='中文 / English', command=self.change_language)
         self.lang_combo.pack(side='right')
-        ttk.Label(toolbar, text='FilmCrop', font=self.heading_font).pack(anchor='center')
+        ttk.Label(toolbar, text='FilmCrop', font=self.brand_font).pack(anchor='center')
         ttk.Separator(self.root).pack(fill='x')
         content = ttk.Frame(self.root)
         content.pack(fill='both', expand=True)
@@ -165,7 +170,7 @@ class ModernFilmApp:
         ttk.Separator(right).pack(fill='x', pady=(0, 20))
         self.label(right, 'export_settings', font=self.heading_font).pack(anchor='w', pady=(0, 16))
         self.label(right, 'export').pack(anchor='w', pady=(0, 6))
-        self.export_combo = ttk.Combobox(right, textvariable=self.export, values=('TIFF16', 'JPEG'), state='readonly', font=self.ui_font)
+        self.export_combo = ttk.Combobox(right, textvariable=self.export, values=('TIFF16', 'JPEG'), state='readonly', font=self.latin_ui_font)
         self.export_combo.pack(fill='x', pady=(0, 16))
         self.label(right, 'location').pack(anchor='w', pady=(0, 6))
         self.path_entry = ttk.Entry(right, textvariable=self.outdir, font=self.ui_font)
@@ -226,8 +231,7 @@ class ModernFilmApp:
         self._resize_job = None
         scale = layout_scale(self.root.winfo_width(), self.root.winfo_height())
         self.scale = scale
-        self.ui_font.configure(size=max(8, round(16 * scale)))
-        self.heading_font.configure(size=max(10, round(19 * scale)))
+        self._apply_font_scale()
         self.left_panel.configure(width=round(265 * scale))
         self.right_panel.configure(width=round(340 * scale))
         self.note.configure(wraplength=round(290 * scale))
@@ -243,10 +247,20 @@ class ModernFilmApp:
         style.configure('TCheckbutton', padding=(0, round(4*scale)))
         self.redraw()
 
+    def _apply_font_scale(self):
+        # Normalize Windows font metrics so the export controls fit the layout.
+        factor = (.8 if self.lang == 'en' else .875) if sys.platform == 'win32' else 1.
+        self.ui_font.configure(size=max(8, round(16 * self.scale * factor)))
+        self.heading_font.configure(size=max(10, round(19 * self.scale * factor)))
+        latin_factor = .8 if sys.platform == 'win32' else 1.
+        self.latin_ui_font.configure(size=max(8, round(16 * self.scale * latin_factor)))
+        self.brand_font.configure(size=max(10, round(19 * self.scale * latin_factor)))
+
     def refresh_language(self):
         family = self.chinese_font if self.lang == 'zh' else self.latin_font
         self.ui_font.configure(family=family)
         self.heading_font.configure(family=family)
+        self._apply_font_scale()
         for widget, key in self.translated_widgets:
             widget.configure(text=self.tr(key))
         choices = list(FORMAT_CHOICES)
@@ -508,6 +522,10 @@ class ModernFilmApp:
 
 
 def main():
+    if '--windows-preview-check' in sys.argv:
+        from check_windows_preview import main as preview_check
+        preview_check()
+        return
     root = create_root()
     app = ModernFilmApp(root)
     if '--startup-test' in sys.argv:

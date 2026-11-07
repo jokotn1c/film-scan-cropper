@@ -1,12 +1,11 @@
 """Shared processing pipeline for the GUI and RAW-capable command line."""
 from dataclasses import dataclass
-from pathlib import Path
 import math
 import cv2
 import numpy as np
 import film_crop as fc
 from film_detect import detect_auto, analyze
-from film_io import read_image, detection_image, write_image, output_path
+from film_io import detection_image
 
 
 @dataclass(frozen=True)
@@ -19,22 +18,31 @@ class Options:
     border_margin: float = .025
     sprocket_side: float = .035
     auto_rotate: bool = True
+    manual_box: tuple | None = None
+    corners: tuple | None = None
+    ratio: float | None = None
+    orientation: str = 'auto'
+    padding: float = 0.
+    keep_sprockets: bool = False
+    sprocket_margins: tuple | None = None
+    collision_policy: str | None = None
 
 
-def _locate(image, fmt):
+def _locate(image, fmt, context=None):
     preview = detection_image(image)
     if fmt == 'auto':
-        detection = detect_auto(preview)
+        detection = detect_auto(preview, context=context)
         translations = {
             'dark square frame boundary estimated from film strip': '暗部内框不可见，按底片外缘与可见画面估算6x6边界',
             'boundary estimated from sprocket spacing': '按齿孔间距估算边界',
             'enclosing frame selected over scene edge': '画面内框与场景直线存在歧义',
+            'black film band excluded using a visible picture edge': '根据可见画面边界排除了片边黑带',
             'one or more frame edges have low contrast': '部分边界对比度低',
             'measured ratio differs from preset by over 2.5%': '检测比例偏离预设超过 2.5%',
         }
         detection['review_reasons'] = [translations.get(s, s.replace('competing format: ', '候选画幅接近：')) for s in detection['review_reasons']]
         return detection
-    candidates, scale, negative = analyze(preview,fmt)
+    candidates, scale, negative = analyze(preview,fmt,context=context)
     # Each preset has a reciprocal landscape/portrait form. The
     # detector stores the measured orientation, so do not accept a candidate
     # merely because its label was rounded to the same long-side ratio.
@@ -78,9 +86,11 @@ def _locate(image, fmt):
 
 
 def locate(image, fmt, auto_rotate=True):
+    from film_detection_context import DetectionContext
     from film_rotation import estimate_rotation, deskew_preview
     preview = detection_image(image)
-    rotation = estimate_rotation(preview) if auto_rotate else dict(angle=0., method='disabled', confident=False)
+    context = DetectionContext(preview)
+    rotation = estimate_rotation(preview, context=context) if auto_rotate else dict(angle=0., method='disabled', confident=False)
     angle = rotation['angle'] if rotation['confident'] and abs(rotation['angle']) >= .25 else 0.
     if angle:
         small, scale = fc.resize_for_detection(preview, 1600)
@@ -92,7 +102,7 @@ def locate(image, fmt, auto_rotate=True):
         detection['corners'] = quad.tolist()
         detection['bounds'] = [float(quad[:,0].min()),float(quad[:,0].max()),float(quad[:,1].min()),float(quad[:,1].max())]
     else:
-        detection = _locate(preview, fmt)
+        detection = _locate(preview, fmt, context)
     detection.update(rotation_degrees=float(angle), rotation_estimated_degrees=float(rotation['angle']),
                      rotation_method=rotation['method'], rotation_confident=rotation['confident'])
     if auto_rotate and not rotation['confident']:
@@ -148,30 +158,16 @@ def crop_pixels(image, detection, options):
     if options.keep_border:
         corners, ratio = border_corners(corners, image.shape[:2],
                                        detection['format'], ratio, options.border_margin, options.sprocket_side)
-    result = fc.perspective_crop(image, corners, ratio)
-    if not options.keep_border:
+    elif options.keep_sprockets:
+        corners = fc.expand_for_sprockets(corners, image.shape[:2], detection['format'], options.sprocket_margins)
+        ratio = fc.SPROCKET_RATIO_135 if ratio >= 1 else 1 / fc.SPROCKET_RATIO_135
+    result = fc.perspective_crop(image, corners, ratio, padding=options.padding)
+    if not options.keep_border and not options.keep_sprockets:
         result = fc.trim_borders(result, ratio, options.top_trim, options.bottom_trim)
     return result
 
 
 def process_file(source, folder, options=Options()):
-    source = Path(source)
-    image, metadata = read_image(source)
-    detection = locate(image, options.format, options.auto_rotate)
-    result = crop_pixels(image, detection, options)
-    suffix = 'border' if options.keep_border else 'crop'
-    output = output_path(folder, source, options.output_format, suffix)
-    write_image(output, result, options.output_format, metadata['source_type'] == 'RAW', source=source)
-    h, w = image.shape[:2]; oh, ow = result.shape[:2]
-    record = {'source': str(source), 'output': str(output), **metadata, **detection,
-              'source_width': w, 'source_height': h, 'output_width': ow,
-              'output_height': oh, 'output_ratio': ow/oh,
-              'output_format': options.output_format, 'keep_border': options.keep_border,
-              'sprocket_side': options.sprocket_side,
-              'top_trim': 0 if options.keep_border else options.top_trim,
-              'bottom_trim': 0 if options.keep_border else options.bottom_trim}
-    if options.keep_border:
-        record['needs_review'] = True
-        record['review_reasons'] = list(record['review_reasons']) + [
-            '边框为按比例扩展估算；原文件缺少的齿孔或边框无法恢复']
-    return record
+    """Classic GUI compatibility entry; the shared pipeline defaults to overwrite."""
+    from film_pipeline import process_image
+    return process_image(source, folder, options)

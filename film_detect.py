@@ -18,6 +18,43 @@ def prepare(im):
   im=(v*255).astype(np.uint8)
  return im,neg
 
+def prefer_picture_over_empty_band(candidates,gray):
+ """Resolve near-ties where a frame only adds a black strip at one side.
+
+ Three sides must agree; the shorter candidate must supply a visible fourth
+ edge. Sparse lettering in an otherwise black strip is not picture area.
+ A dark scene extension with substantial visible content remains untouched.
+ """
+ if not candidates:return
+ outer=candidates[0];x,y,w,h=outer['box']
+ bounds=np.array([x,x+w,y,y+h],float)
+ spans=np.array([w,w,h,h],float)
+ black_limit=max(6.,float(np.percentile(gray,5))+3.)
+ preferred=[]
+ for side,strength in enumerate(outer['jumps']):
+  if strength>0:continue
+  for inner in candidates[1:]:
+   if inner['error']>.025 or inner['score']<outer['score']-.6:continue
+   if inner['jumps'][side]<=strength+1:continue
+   ix,iy,iw,ih=inner['box']
+   ib=np.array([ix,ix+iw,iy,iy+ih],float)
+   inward=(ib[side]-bounds[side])*(1 if side%2==0 else -1)
+   if not .06*spans[side]<inward<.3*spans[side]:continue
+   others=[i for i in range(4) if i!=side]
+   if np.any(abs(ib[others]-bounds[others])>.025*spans[others]):continue
+   left,right=max(x,ix),min(x+w,ix+iw)
+   top,bottom=max(y,iy),min(y+h,iy+ih)
+   if side==0:band=gray[top:bottom,x:ix]
+   elif side==1:band=gray[top:bottom,ix+iw:x+w]
+   elif side==2:band=gray[y:iy,left:right]
+   else:band=gray[iy+ih:y+h,left:right]
+   if band.size and np.percentile(band,90)<=black_limit:
+    preferred.append(inner)
+ if preferred:
+  chosen=max(preferred,key=lambda q:q['score'])
+  candidates.remove(chosen);candidates.insert(0,chosen)
+  chosen['empty_extension_removed']=True
+
 def strip_frame(image, requested_format=None, incomplete=False):
  """Search from either end of the strip, including asymmetric table edges."""
  found=[];uncertain=None
@@ -148,8 +185,11 @@ def _strip_candidate(g,profile,dynamic,threshold,a,x0,x1,b,transpose,requested_f
                     score=12.-18*error,jumps=jumps,strip_frame=True,
                     strip_axis=1 if transpose else 0)
 
-def analyze(im, requested_format=None):
- s,sc=f.resize_for_detection(im,1200);s,neg=prepare(s);h,w=s.shape[:2];g=cv2.cvtColor(s,cv2.COLOR_BGR2GRAY);g=cv2.GaussianBlur(g,(0,0),1)
+def analyze(im, requested_format=None, *, context=None):
+ from film_detection_context import DetectionContext
+ context=context or DetectionContext(im)
+ raw,sc=context.small,context.scale
+ s,neg=prepare(raw);h,w=s.shape[:2];g=cv2.cvtColor(s,cv2.COLOR_BGR2GRAY);g=cv2.GaussianBlur(g,(0,0),1)
  boxes=set()
  for channel in [g,*cv2.split(s)]:
   for t in [3,8,16,24,40,64,90,120,160,200,235,248]:
@@ -159,10 +199,9 @@ def analyze(im, requested_format=None):
     if .15<a<.97 and x<w*.5<x+cw and y<h*.5<y+ch:boxes.add((x,y,cw,ch))
  # Bright paired rows of perforations provide independent 135 evidence.
  holes=[]
- raw=f.resize_for_detection(im,1200)[0]
  # Camera white balance can make transmitted light cyan; grayscale 220 misses it.
  # Search bright channels, requiring two regular rows with matching pitch.
- brightness=np.max(raw,axis=2)
+ brightness=context.brightness
  hole_box=None
  strict_hole_geometry=False
  negative_edge_evidence=False
@@ -186,8 +225,7 @@ def analyze(im, requested_format=None):
   boxes.add(hole_box)
   break
  if hole_box is None:
-  from film_sprockets import paired_perforations
-  evidence=paired_perforations(raw)
+  evidence=context.perforations
   if evidence:
    hole_box=tuple(evidence['box'])
    strict_hole_geometry=True
@@ -246,7 +284,12 @@ def analyze(im, requested_format=None):
   # copies: a dark part of the picture must not count as a film border.
   if negative_edge_evidence:surround=0
   edge=sum(np.sign(v)*np.sqrt(abs(v)/255) for v in signed_vals)
-  score=edge-18*err+2.0*cw*ch/(w*h)+min(signed_vals)/255+2*surround
+  # Black film lettering and perforation bands can extend a box without
+  # supplying a picture edge. Area and black surround alone must not make
+  # such a rectangle outrank supported, even faint, picture boundaries.
+  # Zero contrast remains neutral: a real dark edge can merge with the border.
+  reversed_edges=sum(v<0 for v in signed_vals)
+  score=edge-18*err+2.0*cw*ch/(w*h)+min(signed_vals)/255+2*surround-.25*reversed_edges
   result.append({'box':[x,y,cw,ch],'format':fm,'measured':cw/ch,'error':err,'score':score,'jumps':vals,'estimated':bool(hole_box is not None and (x,y,cw,ch)==hole_box)})
  result.sort(key=lambda v:v['score'],reverse=True)
  if result:
@@ -260,6 +303,7 @@ def analyze(im, requested_format=None):
     enclosing.append(q)
   if enclosing:
    chosen=max(enclosing,key=lambda q:q['box'][2]*q['box'][3]);result.remove(chosen);result.insert(0,chosen);chosen['ambiguous']=True
+ if not negative_edge_evidence:prefer_picture_over_empty_band(result,g)
  strip_detected=False
  if hole_box is None and not neg:
   strip=strip_frame(s,requested_format)
@@ -316,8 +360,8 @@ def analyze(im, requested_format=None):
  return result,sc,neg
 
 
-def detect_auto(image):
-    candidates,scale,negative = analyze(image)
+def detect_auto(image, *, context=None):
+    candidates,scale,negative = analyze(image, context=context)
     if not candidates:
         raise RuntimeError("No plausible film frame found; specify --format or --corners")
     best = candidates[0]
@@ -329,6 +373,7 @@ def detect_auto(image):
     if best.get('estimated_dark'): reasons.append('dark square frame boundary estimated from film strip')
     if best.get('estimated'): reasons.append('boundary estimated from sprocket spacing')
     if best.get('ambiguous'): reasons.append('enclosing frame selected over scene edge')
+    if best.get('empty_extension_removed'): reasons.append('black film band excluded using a visible picture edge')
     if alternative and not best.get('estimated_dark') and best['score']-alternative['score']<.6:
         reasons.append('competing format: '+alternative['format'])
     if best['error']>.025: reasons.append('measured ratio differs from preset by over 2.5%')

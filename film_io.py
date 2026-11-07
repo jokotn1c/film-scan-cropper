@@ -63,14 +63,30 @@ def detection_image(image):
     return image
 
 
-def write_image(path, image, output_format='TIFF16', is_raw=False, *, source=None):
-    """Encode completely before atomically replacing a previous result."""
+def validate_output_path(path, source=None):
+    """Reject paths that would replace the original, including hard links."""
     path = Path(path)
     if source is not None:
         source = Path(source)
         if (path.resolve() == source.resolve()
                 or (path.exists() and source.exists() and path.samefile(source))):
             raise ValueError('输出文件不能与原始文件相同')
+
+
+def write_output(path, image, output_format='TIFF16', is_raw=False, *, source=None,
+                 collision_policy='overwrite'):
+    """Encode once and atomically commit according to the collision policy.
+
+    Return (actual_path, skipped). Non-overwrite policies use an exclusive hard
+    link in the output directory so simultaneous exports cannot replace a winner.
+    """
+    path = Path(path)
+    validate_output_path(path, source)
+    if collision_policy not in {'overwrite', 'number', 'skip', 'error'}:
+        raise ValueError('未知同名文件策略：' + str(collision_policy))
+    if path.exists():
+        if collision_policy == 'skip': return path, True
+        if collision_policy == 'error': raise FileExistsError(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name('.' + path.stem + '-' + uuid.uuid4().hex + '.tmp')
     try:
@@ -98,9 +114,26 @@ def write_image(path, image, output_format='TIFF16', is_raw=False, *, source=Non
                 encoded.tofile(temp)
         else:
             raise ValueError('未知输出格式：' + output_format)
-        os.replace(temp, path)
+        if collision_policy == 'overwrite':
+            os.replace(temp, path)
+            return path, False
+        for n in range(1, 100000):
+            candidate = path if n == 1 else path.with_name(f'{path.stem}_{n}{path.suffix}')
+            validate_output_path(candidate, source)
+            try:
+                os.link(temp, candidate)
+                return candidate, False
+            except FileExistsError:
+                if collision_policy == 'skip': return candidate, True
+                if collision_policy == 'error': raise
+        raise FileExistsError('Could not allocate an output filename')
     finally:
         if temp.exists(): temp.unlink()
+
+
+def write_image(path, image, output_format='TIFF16', is_raw=False, *, source=None):
+    """Backward-compatible writer: completely encode, then atomically replace."""
+    write_output(path, image, output_format, is_raw, source=source)
 
 
 def output_path(folder, source, output_format, suffix='crop'):

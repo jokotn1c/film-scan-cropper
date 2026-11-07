@@ -462,7 +462,11 @@ def create_root():
         if getattr(sys, 'frozen', False):
             os.environ['TCL_LIBRARY'] = long_path(Path(sys._MEIPASS) / '_tcl_data')
             os.environ['TK_LIBRARY'] = long_path(Path(sys._MEIPASS) / '_tk_data')
-        root = tk.Tk()
+        # Retain the root's DnD methods while loading tkdnd via the localized
+        # Windows path workaround below (the preview registers the root too).
+        class WindowsDnDRoot(tk.Tk, TkinterDnD.DnDWrapper):
+            pass
+        root = WindowsDnDRoot()
         tcl_major = int(root.tk.call('info', 'tclversion').split('.')[0])
         variant = 'win-x64-tcl9' if tcl_major >= 9 else 'win-x64'
         module = long_path(Path(tkinterdnd2.__file__).parent / 'tkdnd' / variant)

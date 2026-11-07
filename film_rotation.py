@@ -49,12 +49,13 @@ def _hole_angle(s):
         return (-angle if portrait else angle), 'paired_sprockets'
     return None
 
-def estimate_rotation(preview):
-    s,_ = resize_for_detection(preview,1200)
+def estimate_rotation(preview, *, context=None):
+    from film_detection_context import DetectionContext
+    context = context or DetectionContext(preview)
+    s = context.small
     holes = _hole_angle(s)
     if holes is None:
-        from film_sprockets import paired_perforations
-        evidence = paired_perforations(s)
+        evidence = context.perforations
         if evidence and evidence.get('angle_reliable', True):
             holes = evidence['angle'], 'paired_sprockets'
     if holes:

@@ -15,5 +15,7 @@ class ScaleTests(unittest.TestCase):
 
     def test_chinese_font_preference_and_fallback(self):
         from film_ui_scale import choose_chinese_font
-        self.assertEqual(choose_chinese_font(['Georgia', 'Songti SC']), 'Songti SC')
-        self.assertEqual(choose_chinese_font(['Georgia']), 'Georgia')
+        self.assertEqual(choose_chinese_font(['Songti SC', 'Microsoft YaHei UI']), 'Microsoft YaHei UI')
+        self.assertEqual(choose_chinese_font(['微软雅黑', '宋体']), '微软雅黑')
+        self.assertEqual(choose_chinese_font(['Songti SC', 'PingFang SC']), 'PingFang SC')
+        self.assertEqual(choose_chinese_font(['Georgia']), 'TkDefaultFont')

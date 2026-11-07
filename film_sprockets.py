@@ -4,23 +4,58 @@ import cv2
 import numpy as np
 
 
-def paired_perforations(image):
+def paired_perforations(image, *, brightness=None):
     """Return estimated picture bounds and roll in this preview's coordinates.
 
     Both bright transmitted holes and dark holes in converted positives count.
     Two regular rows must agree on pitch, angle, phase and physical separation.
     """
     # Keep complete-hole evidence first; clipped-hole geometry is less precise.
-    return _paired(image, False) or _paired(image, True) or _paired(image, False, adaptive=True)
+    search = _PerforationSearch(image, brightness)
+    return (_paired(image, False, search=search)
+            or _paired(image, True, search=search)
+            or _paired(image, False, adaptive=True, search=search))
 
 
-def _paired(image, allow_clipped, adaptive=False):
+class _PerforationSearch:
+    """Reuse channel maxima and slim contour geometry across search passes."""
+
+    def __init__(self, image, brightness=None):
+        self.brightness = image.max(axis=2) if brightness is None else brightness
+        self.geometry = {}
+
+    def contours(self, transposed, polarity, threshold):
+        key = (transposed, polarity, threshold)
+        if key not in self.geometry:
+            channel = self.brightness.T if transposed else self.brightness
+            h, w = channel.shape
+            mask = channel > threshold if polarity == 'bright' else channel < threshold
+            contours, _ = cv2.findContours(mask.astype(np.uint8)*255,
+                                           cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            rows = []
+            for contour in contours:
+                x, y, cw, ch = cv2.boundingRect(contour)
+                if not (.015*w < cw < .08*w and x > 0 and x+cw < w):
+                    continue
+                complete = .025*h < ch < .15*h and .35 < cw/ch < .95
+                clipped = ((y == 0 or y+ch == h) and .005*h < ch < cw*2.79/1.98)
+                if not (complete or clipped) or cv2.contourArea(contour)/(cw*ch) <= .7:
+                    continue
+                moments = cv2.moments(contour)
+                rows.append((x, y, cw, ch, moments['m10']/moments['m00'],
+                             moments['m01']/moments['m00'], complete, clipped))
+            self.geometry[key] = rows
+        return self.geometry[key]
+
+
+def _paired(image, allow_clipped, adaptive=False, *, search=None):
+    search = search or _PerforationSearch(image)
     for transpose in (False, True):
         s = cv2.transpose(image) if transpose else image
         h, w = s.shape[:2]
         for polarity, channel, thresholds in (
-            ('bright', s.max(axis=2), (220, 180, 150, 120)),
-            ('dark', s.max(axis=2), (12, 20, 28, 36, 48, 64)),
+            ('bright', search.brightness.T if transpose else search.brightness, (220, 180, 150, 120)),
+            ('dark', search.brightness.T if transpose else search.brightness, (12, 20, 28, 36, 48, 64)),
         ):
             if adaptive:
                 # Underexposed copies may have no pixels above the fixed
@@ -31,22 +66,12 @@ def _paired(image, allow_clipped, adaptive=False):
                 thresholds = sorted(set(thresholds) | set(int(v) for v in
                                     np.percentile(channel, (15, 25, 40, 55, 70, 80, 90, 95))))
             for threshold in thresholds:
-                mask = channel > threshold if polarity == 'bright' else channel < threshold
-                contours, _ = cv2.findContours(mask.astype(np.uint8)*255,
-                                               cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
                 points = []
                 clipped_count = 0
-                for c in contours:
-                    x, y, cw, ch = cv2.boundingRect(c)
-                    complete = .025*h < ch < .15*h and .35 < cw/ch < .95
-                    clipped = (allow_clipped and (y == 0 or y+ch == h)
-                               and .005*h < ch < cw*2.79/1.98)
-                    if not (.015*w < cw < .08*w and (complete or clipped)
-                            and x > 0 and x+cw < w
-                            and cv2.contourArea(c)/(cw*ch) > .7):
+                for x, y, cw, ch, cx, cy, complete, can_clip in search.contours(transpose, polarity, threshold):
+                    clipped = allow_clipped and can_clip
+                    if not (complete or clipped):
                         continue
-                    moments = cv2.moments(c)
-                    cx, cy = moments['m10']/moments['m00'], moments['m01']/moments['m00']
                     if clipped:
                         # Standard 135 perforations measure 1.98 x 2.79 mm.
                         # Use the visible inner edge, not the truncated centroid.
