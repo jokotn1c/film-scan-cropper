@@ -147,6 +147,8 @@ def choose_bounds(
         b = float(profile[min(len(profile) - 1, i + step)])
         return max(0.0, (a - b) / 255.0)
 
+    x_mean = float(np.mean(x_profile)) + 1e-6
+    y_mean = float(np.mean(y_profile)) + 1e-6
     best = None
     for x0, sx in xp:
         for x1, ex in xp:
@@ -160,7 +162,8 @@ def choose_bounds(
                     # Log-ratio makes over/under estimates symmetric.
                     ratio_penalty = abs(math.log(max(ratio, 1e-6) / target_ratio))
                     area_bonus = ((x1 - x0) * (y1 - y0)) / (w * h)
-                    edge_score = sum(math.log1p(v / (np.mean(p) + 1e-6)) for v,p in [(sx,x_profile),(ex,x_profile),(sy,y_profile),(ey,y_profile)])
+                    edge_score = (math.log1p(sx / x_mean) + math.log1p(ex / x_mean)
+                                  + math.log1p(sy / y_mean) + math.log1p(ey / y_mean))
                     # Several film structures can produce a strong edge
                     # (especially the sprocket band). Among rectangles with
                     # the requested ratio, prefer the largest plausible

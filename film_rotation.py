@@ -61,25 +61,14 @@ def estimate_rotation(preview, *, context=None):
     if holes:
         angle,method = holes
         return dict(angle=angle, method=method, confident=abs(angle)<=MAX_ROLL)
-    s,_ = prepare(s); h,w = s.shape[:2]
+    s,_ = prepare(s)
     gray = cv2.cvtColor(s,cv2.COLOR_BGR2GRAY)
     votes = []
-    for channel in (gray,*cv2.split(s)):
+    channels = [('rotation-gray', gray), *zip(('blue', 'green', 'red'), cv2.split(s))]
+    for name, channel in channels:
         for t in (8,16,32,64,90,120,160,200,235):
-            contours,_ = cv2.findContours((channel>t).astype(np.uint8)*255,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
-            for c in contours:
-                (x,y),(cw,ch),angle = cv2.minAreaRect(c)
-                if min(cw,ch)<=0: continue
-                area = cw*ch/(w*h); aspect=max(cw,ch)/min(cw,ch)
-                if not (.18<area<.95 and abs(x/w-.5)<.2 and abs(y/h-.5)<.2
-                        and (1<=aspect<1.85 or abs(aspect-65/24)<.12 or abs(aspect-56/24)<.10)): continue
-                rectangularity=cv2.contourArea(c)/(cw*ch)
-                if rectangularity<.92: continue
-                # Image-boundary rectangles provide no independent roll evidence.
-                bx,by,bw,bh=cv2.boundingRect(c)
-                if bx<=1 and by<=1 and bx+bw>=w-1 and by+bh>=h-1: continue
-                angle=(angle+45)%90-45
-                votes.append((angle,area*rectangularity))
+            channel_votes, _ = context.rectangle_data(name, t, channel)
+            votes.extend(channel_votes)
     if not votes: return dict(angle=0.,method='unavailable',confident=False)
     cluster=max(([v for v in votes if abs(v[0]-a)<.3] for a,_ in votes),key=lambda c:sum(v[1] for v in c))
     angle=float(np.median([v[0] for v in cluster]))

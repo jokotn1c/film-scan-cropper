@@ -191,12 +191,11 @@ def analyze(im, requested_format=None, *, context=None):
  raw,sc=context.small,context.scale
  s,neg=prepare(raw);h,w=s.shape[:2];g=cv2.cvtColor(s,cv2.COLOR_BGR2GRAY);g=cv2.GaussianBlur(g,(0,0),1)
  boxes=set()
- for channel in [g,*cv2.split(s)]:
+ channels=[('analysis-gray',g),*zip(('blue','green','red'),cv2.split(s))]
+ for name,channel in channels:
   for t in [3,8,16,24,40,64,90,120,160,200,235,248]:
-   cs,_=cv2.findContours((channel>t).astype(np.uint8)*255,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
-   for c in cs:
-    x,y,cw,ch=cv2.boundingRect(c);a=cw*ch/(w*h)
-    if .15<a<.97 and x<w*.5<x+cw and y<h*.5<y+ch:boxes.add((x,y,cw,ch))
+   _,channel_boxes=context.rectangle_data(name,t,channel)
+   boxes.update(channel_boxes)
  # Bright paired rows of perforations provide independent 135 evidence.
  holes=[]
  # Camera white balance can make transmitted light cyan; grayscale 220 misses it.
