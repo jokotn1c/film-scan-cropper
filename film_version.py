@@ -5,4 +5,4 @@ component (1.9 -> 1.10), resetting the third component. Small image-processing
 algorithm improvements increment the third component (1.9 -> 1.9.1 -> 1.9.2).
 Documentation-only changes do not increment the version.
 """
-VERSION = '1.9.1'
+VERSION = '1.9.2'

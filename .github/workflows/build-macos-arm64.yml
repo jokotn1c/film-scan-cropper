@@ -33,9 +33,13 @@ jobs:
       - name: Check packaged app startup
         run: python check_macos_startup.py
 
+      - name: Read release version
+        id: release
+        run: echo "version=$(python -c 'from film_version import VERSION; print(VERSION)')" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: FilmCrop-RAW-1.9-mac-arm64
+          name: FilmCrop-RAW-${{ steps.release.outputs.version }}-mac-arm64
           path: |
             dist-macos-arm64/FilmCrop-RAW-*-mac-arm64.zip
             dist-macos-arm64/FilmCrop-RAW-*-mac-arm64.sha256

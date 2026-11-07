@@ -25,8 +25,11 @@ def _paired(image, allow_clipped, adaptive=False):
             if adaptive:
                 # Underexposed copies may have no pixels above the fixed
                 # thresholds. Geometry still has to pass every paired-row test.
-                thresholds = sorted(set(int(v) for v in np.percentile(channel,
-                                    (15, 25, 40, 55, 70, 80, 90, 95))))
+                # A strip placed off-center may still have nearly black holes.
+                # Keep fixed thresholds when switching to position-free rows;
+                # canvas percentiles can all sit above the hole/film contrast.
+                thresholds = sorted(set(thresholds) | set(int(v) for v in
+                                    np.percentile(channel, (15, 25, 40, 55, 70, 80, 90, 95))))
             for threshold in thresholds:
                 mask = channel > threshold if polarity == 'bright' else channel < threshold
                 contours, _ = cv2.findContours(mask.astype(np.uint8)*255,
