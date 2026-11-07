@@ -18,6 +18,29 @@ def prepare(im):
   im=(v*255).astype(np.uint8)
  return im,neg
 
+
+def perforation_frame_boxes(xp,yp,hole_box):
+ """Recover faint edges only near dimensions verified by paired hole rows.
+
+ A panoramic frame's dark end may rank below the scene's internal edges.
+ Hole pitch constrains its height; supported formats constrain its length.
+ The search still needs actual projection peaks at all four boundaries.
+ """
+ hx,hy,hw,hh=hole_box
+ horizontal=hw>hh
+ xs=f.nms_peaks(xp,64,12);ys=f.nms_peaks(yp,64,12)
+ boxes=set()
+ for fmt in ('135/6x9',*sorted(f.PANORAMIC_FORMATS)):
+  factor=f.FORMATS[fmt]/1.5
+  ew,eh=(hw*factor,hh) if horizontal else (hw,hh*factor)
+  xtol,ytol=(.15*hw,.05*hh) if horizontal else (.05*hw,.15*hh)
+  xx=[(a,b) for a,_ in xs for b,_ in xs
+      if .9*ew<b-a+1<1.12*ew and abs((a+b+1)/2-(hx+hw/2))<xtol]
+  yy=[(a,b) for a,_ in ys for b,_ in ys
+      if .9*eh<b-a+1<1.12*eh and abs((a+b+1)/2-(hy+hh/2))<ytol]
+  boxes.update((x0,y0,x1-x0+1,y1-y0+1) for x0,x1 in xx for y0,y1 in yy)
+ return boxes
+
 def prefer_picture_over_empty_band(candidates,gray):
  """Resolve near-ties where a frame only adds a black strip at one side.
 
@@ -203,6 +226,7 @@ def analyze(im, requested_format=None, *, context=None):
  brightness=context.brightness
  hole_box=None
  strict_hole_geometry=False
+ low_contrast_holes=False
  negative_edge_evidence=False
  for threshold in [220,180,150,120]:
   found=[]
@@ -228,6 +252,7 @@ def analyze(im, requested_format=None, *, context=None):
   if evidence:
    hole_box=tuple(evidence['box'])
    strict_hole_geometry=True
+   low_contrast_holes=evidence.get('low_contrast',False)
    negative_edge_evidence=(evidence.get('clipped',False) or evidence.get('adaptive',False)
                            or np.percentile(brightness,95)<120) and evidence['polarity']=='bright'
    boxes.add(hole_box)
@@ -240,6 +265,8 @@ def analyze(im, requested_format=None, *, context=None):
     for y1,_ in ys:
      if y1-y0<.35*h or not y0<h*.5<y1:continue
      boxes.add((x0,y0,x1-x0+1,y1-y0+1))
+ if low_contrast_holes:
+  boxes.update(perforation_frame_boxes(xp,yp,hole_box))
  result=[]
  for x,y,cw,ch in boxes:
   r=max(cw,ch)/min(cw,ch);fm=min(f.FORMATS,key=lambda k:abs(math.log(max(f.FORMATS[k],1/f.FORMATS[k])/r)));err=abs(math.log(max(f.FORMATS[fm],1/f.FORMATS[fm])/r))
@@ -273,6 +300,7 @@ def analyze(im, requested_format=None, *, context=None):
   if fm in f.PANORAMIC_FORMATS and hole_box is not None:
    if min(vals)>3:pass
    elif max(vals)<-3:vals=[-v for v in vals]
+   elif low_contrast_holes and min(vals)>0 and sum(v>3 for v in vals)>=3:pass
    else:continue
   surround=sum(float(np.mean(a<30)) for a in outs)
   # A monochrome negative can be darker than its unexposed film surround.
