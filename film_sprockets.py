@@ -14,7 +14,8 @@ def paired_perforations(image, *, brightness=None):
     search = _PerforationSearch(image, brightness)
     return (_paired(image, False, search=search)
             or _paired(image, True, search=search)
-            or _paired(image, False, adaptive=True, search=search))
+            or _paired(image, False, adaptive=True, search=search)
+            or _paired(image, False, adaptive=True, low_contrast=True, search=search))
 
 
 class _PerforationSearch:
@@ -48,7 +49,7 @@ class _PerforationSearch:
         return self.geometry[key]
 
 
-def _paired(image, allow_clipped, adaptive=False, *, search=None):
+def _paired(image, allow_clipped, adaptive=False, *, low_contrast=False, search=None):
     search = search or _PerforationSearch(image)
     for transpose in (False, True):
         s = cv2.transpose(image) if transpose else image
@@ -57,7 +58,14 @@ def _paired(image, allow_clipped, adaptive=False, *, search=None):
             ('bright', search.brightness.T if transpose else search.brightness, (220, 180, 150, 120)),
             ('dark', search.brightness.T if transpose else search.brightness, (12, 20, 28, 36, 48, 64)),
         ):
-            if adaptive:
+            if low_contrast:
+                # Converted monochrome scans can place the hole interiors at
+                # black while only their thin rims remain a few levels brighter.
+                # Keep this fallback after the established exposure searches.
+                if polarity != 'dark':
+                    continue
+                thresholds = (2, 4, 6, 8)
+            elif adaptive:
                 # Underexposed copies may have no pixels above the fixed
                 # thresholds. Geometry still has to pass every paired-row test.
                 # A strip placed off-center may still have nearly black holes.
@@ -77,6 +85,11 @@ def _paired(image, allow_clipped, adaptive=False, *, search=None):
                         # Use the visible inner edge, not the truncated centroid.
                         cy = y+ch-cw*2.79/1.98/2 if y == 0 else y+cw*2.79/1.98/2
                         clipped_count += 1
+                    # RETR_LIST can return both sides of the same thin rim.
+                    # Count each physical hole once in the near-black fallback.
+                    if low_contrast and any(abs(cx-px)<.25*cw and abs(cy-py)<.25*ch
+                                            for px,py in points):
+                        continue
                     points.append((cx, cy))
                 if allow_clipped and clipped_count < 6:
                     continue
@@ -151,6 +164,7 @@ def _paired(image, allow_clipped, adaptive=False, *, search=None):
                         'angle': -angle if transpose else angle,
                         'polarity': actual_polarity, 'transposed': transpose,
                         'adaptive': adaptive,
+                        'low_contrast': low_contrast,
                         'clipped': allow_clipped,
                         # Missing outer edges make the recovered row slope too
                         # uncertain to use as an automatic deskew measurement.
