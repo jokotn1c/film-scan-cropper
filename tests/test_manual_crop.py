@@ -23,7 +23,7 @@ class ManualCropTests(unittest.TestCase):
 if __name__ == '__main__': unittest.main()
 
 class ExportTests(unittest.TestCase):
-    def test_manual_export_does_not_overwrite(self):
+    def test_manual_export_overwrites_existing_crop(self):
         import tempfile
         from pathlib import Path
         from PIL import Image
@@ -36,12 +36,36 @@ class ExportTests(unittest.TestCase):
             dest = root / 'out'; dest.mkdir()
             old = dest / 'input_crop.jpg'; old.write_bytes(b'preserve')
             record = export_one(source, dest, Options(output_format='JPEG'), (.1, .25, .9, .75))
-            self.assertEqual(old.read_bytes(), b'preserve')
+            self.assertEqual(Path(record['output']), old)
+            self.assertNotEqual(old.read_bytes(), b'preserve')
+            self.assertEqual(list(dest.glob('*.jpg')), [old])
             with Image.open(record['output']) as im:
                 self.assertEqual(im.size, (80, 40))
             self.assertEqual(record['mode'], 'manual')
 
 class DragInteractionTests(unittest.TestCase):
+    def test_detected_outline_uses_source_dimensions_and_rotated_corners(self):
+        from film_manual import detected_outline
+        record = dict(mode='auto', source_width=200, source_height=100,
+                      bounds=[20,180,10,90], corners=[[25,10],[180,15],[175,90],[20,85]])
+        points = detected_outline(record)
+        self.assertEqual(points[0], [.125,.1])
+        self.assertEqual(points[2], [.875,.9])
+        self.assertIsNone(detected_outline(dict(record, error='failed')))
+        self.assertIsNone(detected_outline(dict(record, mode='manual')))
+
+    def test_automatic_outline_can_be_dragged_into_manual_selection(self):
+        from types import SimpleNamespace
+        from film_gui_modern import ModernFilmApp
+        fake = SimpleNamespace(scale=1., running=False, preview_rect=(0,0,200,100), current='frame',
+            boxes={}, states={}, records={'frame':dict(mode='auto',source_width=200,source_height=100,bounds=[20,180,10,90])},
+            drag_anchor=None, drag_corner=None, drag_box=None, update_list=lambda:None, redraw=lambda:None)
+        fake.point = lambda event: ModernFilmApp.point(fake,event)
+        ModernFilmApp.drag_start(fake,SimpleNamespace(x=20,y=10))
+        ModernFilmApp.drag_end(fake,SimpleNamespace(x=40,y=20))
+        self.assertEqual(fake.boxes['frame'],(.2,.2,.9,.9))
+        self.assertEqual(fake.states['frame'],'manual_state')
+
     def test_drag_and_resize_are_recorded_for_selected_image(self):
         from types import SimpleNamespace
         from film_gui_modern import ModernFilmApp

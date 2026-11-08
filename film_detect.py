@@ -384,6 +384,17 @@ def analyze(im, requested_format=None, *, context=None):
     raise FormatRequired('所选画幅无法在可见底片范围内推算，请检查画幅或更换翻拍图片。')
    dark_candidate['format']=requested_format
    result.insert(0,dark_candidate)
+ # Independent raw-color boundary evidence also handles warm positive scenes.
+ if hole_box is None and not strip_detected and (not result or result[0]['score'] < 9.5):
+  from film_boundaries import surrounded_frame
+  surround=surrounded_frame(raw,requested_format)
+  if surround is not None:
+   replace=not result
+   if result:
+    x,y,cw,ch=surround['box'];ox,oy,ow,oh=result[0]['box']
+    overlap=max(0,min(x+cw,ox+ow)-max(x,ox))*max(0,min(y+ch,oy+oh)-max(y,oy))
+    replace=overlap/(ow*oh)>.8 and cw*ch>1.2*ow*oh
+   if replace:result.insert(0,surround)
  return result,sc,neg
 
 

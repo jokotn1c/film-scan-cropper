@@ -48,7 +48,7 @@ def _locate(image, fmt, context=None):
     # merely because its label was rounded to the same long-side ratio.
     target_ratios = {fc.FORMATS[fmt], 1 / fc.FORMATS[fmt]}
     selected = next((q for q in candidates if q['format'] == fmt and
-                     min(abs(math.log(q['measured']/r)) for r in target_ratios) < .04), None)
+                     min(abs(math.log(q['measured']/r)) for r in target_ratios) < (.065 if q.get('uniform_surround') else .04)), None)
     if selected:
         x, y, w, h = selected['box']
         ratio = max(fc.FORMATS[fmt], 1 / fc.FORMATS[fmt])

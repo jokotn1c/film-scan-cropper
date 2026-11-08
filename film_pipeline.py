@@ -63,8 +63,8 @@ def _selection(image, options):
 def process_image(source, folder=None, options=Options(), *, output=None):
     """Process one source; manual boxes bypass detection and border expansion.
 
-    collision_policy: overwrite (pipeline/CLI/classic default), number (modern
-    entry default), skip (no decode if present), or error. Four explicit corners
+    collision_policy: overwrite (default for all entries), number,
+    skip (no decode if present), or error. Four explicit corners
     and custom ratios retain the original CLI geometry and trimming behavior.
     """
     start = perf_counter()

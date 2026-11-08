@@ -87,15 +87,17 @@ class PipelineTests(unittest.TestCase):
         detect.assert_called_once()
         self.assertEqual(detect.call_args.args[1], 1.6)
 
-    def test_modern_numbers_by_default_classic_overwrites(self):
+    def test_all_entries_overwrite_existing_output_by_default(self):
         folder = self.root / 'out'
         options = Options(manual_box=(.25, .25, .75, .75))
         first = export_one(self.source, folder, options)
         target = Path(first['output'])
         target.write_bytes(b'previous')
         second = export_one(self.source, folder, options)
-        self.assertEqual(Path(second['output']).name, 'input_crop_2.tif')
-        self.assertEqual(target.read_bytes(), b'previous')
+        self.assertEqual(Path(second['output']), target)
+        self.assertNotEqual(target.read_bytes(), b'previous')
+        self.assertEqual(list(folder.glob('input_crop*.tif')), [target])
+        np.testing.assert_array_equal(self.pixels(second), self.image[20:60, 30:90])
         third = process_file(self.source, folder, options)
         self.assertEqual(Path(third['output']), target)
         self.assertNotEqual(target.read_bytes(), b'previous')

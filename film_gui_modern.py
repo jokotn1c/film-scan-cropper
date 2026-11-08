@@ -1,5 +1,6 @@
 """FilmCrop modern desktop interface. The original GUI remains in film_gui.py."""
 from pathlib import Path
+from dataclasses import replace
 from datetime import datetime
 import json
 import os
@@ -18,9 +19,10 @@ from film_gui import create_root, FilmApp
 from film_engine import Options
 from film_io import SUPPORTED_EXTENSIONS, read_image, detection_image
 from film_crop import FORMAT_CHOICES
-from film_manual import normalize_box, translate
+from film_manual import normalize_box, translate, detected_outline
 from film_modern_export import export_one
 from film_version import VERSION
+from film_darkframe import FormatRequired
 
 BG = '#202020'
 PANEL = '#262626'
@@ -55,6 +57,7 @@ class ModernFilmApp:
         self.boxes = {}
         self.states = {}
         self.records = {}
+        self.file_formats = {}
         self.current = None
         self.preview_image = None
         self.preview_photo = None
@@ -147,12 +150,15 @@ class ModernFilmApp:
                                   font=self.ui_font, exportselection=False)
         self.listbox.pack(fill='both', expand=True)
         self.listbox.bind('<<ListboxSelect>>', self.select_file)
+        self.listbox.bind('<Configure>', lambda _event: self.update_list())
         list_actions = ttk.Frame(left)
         list_actions.pack(fill='x', pady=(10, 0))
         self.remove_button = self.button(list_actions, 'remove', self.remove)
         self.clear_button = self.button(list_actions, 'clear', self.clear)
         self.remove_button.pack(side='left', fill='x', expand=True, padx=(0, 4))
         self.clear_button.pack(side='left', fill='x', expand=True, padx=(4, 0))
+        self.format_retry_button = self.button(left, 'reopen_formats', self.open_pending_formats, state='disabled')
+        self.format_retry_button.pack(fill='x', pady=(10, 0))
         ttk.Separator(content, orient='vertical').pack(side='left', fill='y')
         self.right_panel = ttk.Frame(content, width=340, padding=(22, 22))
         right = self.right_panel
@@ -323,13 +329,37 @@ class ModernFilmApp:
 
     def update_list(self):
         selected = self.current
+        scroll = self.listbox.yview()[0]
         self.listbox.delete(0, 'end')
         for path in self.paths:
             state = self.states.get(path, 'pending')
-            self.listbox.insert('end', f'{path.name}  ·  {self.tr(state)}')
+            prefix = f'{self.tr(state)} · '
+            available = max(20, self.listbox.winfo_width()-12-self.ui_font.measure(prefix))
+            name = path.name
+            if self.ui_font.measure(name) > available:
+                left, right = len(path.stem), len(path.suffix)
+                while left+right > 1 and self.ui_font.measure(name[:left]+'…'+name[-right:]) > available:
+                    if left > right: left -= 1
+                    else: right -= 1
+                name = name[:left]+'…'+(name[-right:] if right else '')
+            self.listbox.insert('end', prefix+name)
         if selected in self.paths:
             self.listbox.selection_set(self.paths.index(selected))
+        self.listbox.yview_moveto(scroll)
         self.files_label.configure(text=f"{self.tr('files')}  ({len(self.paths)})")
+        self.update_format_retry_button()
+
+    def pending_format_paths(self):
+        return [p for p in self.paths if self.records.get(p, {}).get('requires_format')
+                and self.states.get(p) == 'needs_format']
+
+    def update_format_retry_button(self):
+        self.format_retry_button.configure(state='normal' if not self.running and self.pending_format_paths() else 'disabled')
+
+    def open_pending_formats(self):
+        if self.running: return
+        paths = self.pending_format_paths()
+        if paths: self.ask_dark_formats(paths)
 
     def add_files(self):
         if self.running: return
@@ -363,6 +393,7 @@ class ModernFilmApp:
         if not indexes: return
         path = self.paths.pop(indexes[0])
         self.boxes.pop(path, None); self.states.pop(path, None); self.records.pop(path, None)
+        self.file_formats.pop(path, None)
         self.current = None; self.preview_image = None
         self.update_list(); self.redraw()
         if self.paths:
@@ -371,6 +402,7 @@ class ModernFilmApp:
     def clear(self):
         if self.running: return
         self.paths.clear(); self.boxes.clear(); self.states.clear(); self.records.clear()
+        self.file_formats.clear()
         self.current = None; self.preview_image = None
         self.update_list(); self.redraw(); self.set_status('select')
 
@@ -414,11 +446,14 @@ class ModernFilmApp:
         self.preview_photo = ImageTk.PhotoImage(img, master=self.root)
         canvas.create_image(left, top, anchor='nw', image=self.preview_photo)
         box = self.drag_box or self.boxes.get(self.current)
+        outline = detected_outline(self.records.get(self.current, {})) if box is None else None
         if box:
             x0,y0,x1,y1 = box
-            ax,ay,bx,by = left+x0*width,top+y0*height,left+x1*width,top+y1*height
-            canvas.create_rectangle(ax, ay, bx, by, outline='white', width=2)
-            for x,y in ((ax,ay),(bx,ay),(bx,by),(ax,by)):
+            outline = [(x0,y0),(x1,y0),(x1,y1),(x0,y1)]
+        if outline:
+            points = [(left+x*width, top+y*height) for x,y in outline]
+            canvas.create_polygon(*[v for point in points for v in point], fill='', outline='white', width=2)
+            for x,y in points:
                 canvas.create_rectangle(x-5*self.scale,y-5*self.scale,x+5*self.scale,y+5*self.scale, fill='white', outline='#444444')
 
     def point(self, event):
@@ -431,10 +466,17 @@ class ModernFilmApp:
         p = self.point(event)
         if not (0 <= p[0] <= 1 and 0 <= p[1] <= 1): return
         existing = self.boxes.get(self.current)
+        auto_outline = None
+        if existing is None:
+            outline = detected_outline(getattr(self, 'records', {}).get(self.current, {}))
+            if outline:
+                auto_outline = outline
+                existing = (min(p[0] for p in outline), min(p[1] for p in outline),
+                            max(p[0] for p in outline), max(p[1] for p in outline))
         self.drag_corner = None
         if existing:
             x0,y0,x1,y1 = existing
-            corners = [(x0,y0),(x1,y0),(x1,y1),(x0,y1)]
+            corners = auto_outline or [(x0,y0),(x1,y0),(x1,y1),(x0,y1)]
             _,_,w,h = self.preview_rect
             distances = [((p[0]-x)*w)**2+((p[1]-y)*h)**2 for x,y in corners]
             nearest = min(range(4), key=lambda i: distances[i])
@@ -474,8 +516,10 @@ class ModernFilmApp:
         for w in (self.format_combo,self.export_combo): w.configure(state='disabled' if busy else 'readonly')
         self.lang_combo.configure(state='disabled' if busy else 'normal')
         self.stop_button.configure(state='normal' if busy else 'disabled')
+        self.update_format_retry_button()
 
-    def start(self):
+    def start(self, retry_paths=None):
+        if self.running: return
         if not self.paths:
             messagebox.showerror(self.tr('error'), self.tr('select_required'), parent=self.root); return
         folder = Path(self.outdir.get()).expanduser()
@@ -483,7 +527,10 @@ class ModernFilmApp:
             messagebox.showerror(self.tr('error'), self.tr('output_required'), parent=self.root); return
         options = Options(format=self.format.get(), output_format=self.export.get(), keep_border=self.keep_border.get(), auto_rotate=self.auto_rotate.get())
         self.stop.clear(); self.set_busy(True)
-        items = [(p, self.boxes.get(p)) for p in self.paths]
+        items = [(p, self.boxes.get(p)) for p in (self.paths if retry_paths is None else retry_paths)]
+        self.active_paths = [p for p, _ in items]
+        self.active_options = {p: replace(options, format=self.file_formats.get(p, options.format))
+                               if options.format == 'auto' else options for p, _ in items}
         threading.Thread(target=self.worker, args=(items, folder, options), daemon=True).start()
 
     def worker(self, items, folder, options):
@@ -492,9 +539,13 @@ class ModernFilmApp:
             if self.stop.is_set(): break
             self.jobs.put(('state', path, 'processing'))
             try:
-                record = export_one(path, folder, options, box)
+                record = export_one(path, folder, self.active_options.get(path, options), box)
                 records.append(record); ok += 1
                 self.jobs.put(('result', path, record, None))
+            except FormatRequired as exc:
+                record = {'source':str(path), 'error':str(exc), 'requires_format':True}
+                records.append(record)
+                self.jobs.put(('result', path, record, str(exc)))
             except Exception as exc:
                 record = {'source':str(path), 'error':str(exc)}
                 records.append(record); failed += 1
@@ -520,17 +571,128 @@ class ModernFilmApp:
                     _,path,state = event; self.states[path] = state; self.update_list()
                 elif event[0] == 'result':
                     _,path,record,error = event
-                    self.states[path] = 'failed' if error else 'done'
+                    self.states[path] = 'needs_format' if record.get('requires_format') else ('failed' if error else 'done')
                     self.records[path] = record
                     self.update_list()
+                    if path == self.current: self.redraw()
                     if error: self.set_status('detail', f'{path.name}: {error}')
                 elif event[0] == 'finished':
                     _,ok,failed,remaining,report_error = event
                     self.set_busy(False)
                     self.set_status('summary', {'ok':ok,'failed':failed,'remaining':remaining})
                     if report_error: messagebox.showerror(self.tr('error'), report_error, parent=self.root)
+                    pending = [p for p in self.active_paths if self.records.get(p, {}).get('requires_format')]
+                    if pending and not self.stop.is_set(): self.ask_dark_formats(pending)
         except queue.Empty: pass
         self.root.after(100, self.poll)
+
+    def ask_dark_formats(self, paths):
+        dialog = tk.Toplevel(self.root)
+        dialog.title(self.tr('needs_format'))
+        dialog.transient(self.root)
+        body = ttk.Frame(dialog, padding=16)
+        body.pack(fill='both', expand=True)
+        ttk.Label(body, text=self.tr('format_prompt')).pack(anchor='w', pady=(0, 10))
+        content = ttk.Frame(body)
+        content.pack(fill='both', expand=True)
+        listing = ttk.Frame(content)
+        listing.pack(side='left', fill='both', expand=True)
+        preview_panel = ttk.Frame(content, padding=(12, 0, 0, 0))
+        preview_panel.pack(side='right', fill='both')
+        preview = tk.Canvas(preview_panel, bg='#181818', highlightthickness=0, width=320, height=300)
+        preview.pack(fill='both', expand=True)
+        preview_name = ttk.Label(preview_panel, wraplength=320)
+        preview_name.pack(fill='x', pady=(6, 0))
+        canvas = tk.Canvas(listing, bg=BG, highlightthickness=0, width=480, height=min(340, 44*len(paths)))
+        scrollbar = ttk.Scrollbar(listing, orient='vertical', command=canvas.yview)
+        scrollbar.pack(side='right', fill='y')
+        canvas.pack(fill='both', expand=True)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        rows = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=rows, anchor='nw')
+        rows.bind('<Configure>', lambda _e: canvas.configure(scrollregion=canvas.bbox('all')))
+        preview_jobs = queue.Queue()
+        cache = {}
+        hover = {'path':None, 'timer':None, 'poll':None, 'initial':None}
+        def close_dialog():
+            for key in ('timer', 'poll', 'initial'):
+                if hover[key] is not None:
+                    dialog.after_cancel(hover[key])
+                    hover[key] = None
+            dialog.destroy()
+        dialog.protocol('WM_DELETE_WINDOW', close_dialog)
+        def read_preview(path):
+            try:
+                image, _ = read_image(path)
+                image = Image.fromarray(detection_image(image)[:, :, ::-1])
+                image.thumbnail((320, 300))
+                preview_jobs.put((path, image, None))
+            except Exception as exc:
+                preview_jobs.put((path, None, str(exc)))
+        def show_preview(image):
+            preview.delete('all')
+            photo = ImageTk.PhotoImage(image, master=dialog)
+            preview.photo = photo
+            preview.create_image(preview.winfo_width()/2, preview.winfo_height()/2, image=photo)
+        def request_preview(path):
+            if hover['path'] == path: return
+            hover['path'] = path
+            preview_name.configure(text=path.name)
+            preview.delete('all')
+            preview.photo = None
+            if hover['timer'] is not None:
+                dialog.after_cancel(hover['timer'])
+            if path in cache:
+                show_preview(cache[path])
+                return
+            preview.create_text(160, 150, text=self.tr('loading'), fill=MUTED, font=self.ui_font)
+            def launch():
+                hover['timer'] = None
+                threading.Thread(target=read_preview, args=(path,), daemon=True).start()
+            hover['timer'] = dialog.after(180, launch)
+        def poll_preview():
+            if not dialog.winfo_exists(): return
+            try:
+                while True:
+                    path, image, error = preview_jobs.get_nowait()
+                    if image is not None:
+                        # Keep a bounded thumbnail cache, never full RAW images.
+                        if len(cache) >= 12: cache.pop(next(iter(cache)))
+                        cache[path] = image
+                    if path != hover['path']: continue
+                    if error:
+                        preview.delete('all')
+                        preview.create_text(160, 150, text=self.tr('no_image'), fill=MUTED, font=self.ui_font)
+                    else: show_preview(image)
+            except queue.Empty: pass
+            hover['poll'] = dialog.after(100, poll_preview)
+        hover['poll'] = dialog.after(100, poll_preview)
+        choices = {}
+        for path in paths:
+            row = ttk.Frame(rows)
+            row.pack(fill='x', pady=5)
+            name = path.name if len(path.name) <= 38 else path.name[:25]+'…'+path.name[-12:]
+            label = ttk.Label(row, text=name, width=29)
+            label.pack(side='left')
+            label.bind('<Enter>', lambda _event, p=path: request_preview(p))
+            combo = ttk.Combobox(row, state='readonly', width=20,
+                                 values=self.format_labels[1:])
+            combo.set(self.tr('choose_format'))
+            combo.pack(side='right')
+            choices[path] = combo
+        buttons = ttk.Frame(body)
+        buttons.pack(fill='x', pady=(12, 0))
+        def apply():
+            selected = {p:self.format_values[c.current()+1] for p,c in choices.items() if c.current() >= 0}
+            if not selected: return
+            self.file_formats.update(selected)
+            close_dialog()
+            self.start(list(selected))
+        ttk.Button(buttons, text=self.tr('retry_format'), command=apply).pack(side='right')
+        ttk.Button(buttons, text=self.tr('later'), command=close_dialog).pack(side='right', padx=8)
+        dialog.grab_set()
+        dialog.focus_set()
+        if paths: hover['initial'] = dialog.after_idle(lambda: request_preview(paths[0]))
 
     def cancel(self):
         self.stop.set(); self.set_status('stopping'); self.stop_button.configure(state='disabled')
