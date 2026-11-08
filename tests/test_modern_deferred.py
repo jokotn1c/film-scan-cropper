@@ -11,6 +11,32 @@ from film_gui_modern import ModernFilmApp
 
 
 class DeferredBatchTests(unittest.TestCase):
+    def test_incremental_jobs_track_settings_source_and_output(self):
+        from dataclasses import replace
+        app = ModernFilmApp.__new__(ModernFilmApp)
+        app.boxes, app.file_formats, app.records, app.completed = {}, {}, {}, {}
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            old, new, output = root/'old.jpg', root/'new.jpg', root/'old_crop.tif'
+            for path in (old, new, output): path.write_bytes(b'photo')
+            options = Options()
+            items, signatures, _ = app.pending_jobs([old], root, options)
+            app.completed.update(signatures)
+            app.records[old] = {'output':str(output)}
+            self.assertEqual(app.pending_jobs([old,new], root, options)[0], [(new,None)])
+            for changed in (replace(options,keep_border=True), replace(options,output_format='JPEG'),
+                            replace(options,format='6x6')):
+                self.assertEqual(len(app.pending_jobs([old], root, changed)[0]),1)
+            self.assertEqual(len(app.pending_jobs([old], root/'other', options)[0]),1)
+            app.boxes[old] = (.1,.1,.9,.9)
+            self.assertEqual(len(app.pending_jobs([old], root, options)[0]),1)
+            app.boxes.clear()
+            old.write_bytes(b'changed source')
+            self.assertEqual(len(app.pending_jobs([old], root, options)[0]),1)
+            app.completed.update(app.pending_jobs([old], root, options)[1])
+            output.unlink()
+            self.assertEqual(len(app.pending_jobs([old], root, options)[0]),1)
+
     def test_reopen_only_lists_unresolved_files_still_in_batch(self):
         from unittest.mock import Mock
         app = ModernFilmApp.__new__(ModernFilmApp)

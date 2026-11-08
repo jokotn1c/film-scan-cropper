@@ -45,6 +45,7 @@ class ModernFilmApp:
         self.heading_font = tkfont.Font(root=root, family=self.chinese_font, size=19, weight='bold')
         self.latin_ui_font = tkfont.Font(root=root, family=self.latin_font, size=16)
         self.brand_font = tkfont.Font(root=root, family=self.latin_font, size=19, weight='bold')
+        self.language_font = tkfont.Font(root=root, family=self.chinese_font, size=10 if sys.platform == 'win32' else 14)
         self.scale = 1.0
         self._resize_job = None
         self._redraw_job = None
@@ -57,6 +58,7 @@ class ModernFilmApp:
         self.boxes = {}
         self.states = {}
         self.records = {}
+        self.completed = {}
         self.file_formats = {}
         self.current = None
         self.preview_image = None
@@ -79,6 +81,7 @@ class ModernFilmApp:
         self.translated_widgets = []
         self._style()
         self._build()
+        self._reserve_language_layout()
         self._capture_layout(root)
         if sys.platform == 'win32':
             # Windows uses a fixed control layout. Pack allocates the remaining
@@ -127,8 +130,15 @@ class ModernFilmApp:
     def _build(self):
         toolbar = ttk.Frame(self.root, padding=(20, 12))
         toolbar.pack(fill='x')
-        self.label(toolbar, 'language', style='Muted.TLabel').pack(side='right', padx=8)
-        self.lang_combo = ttk.Button(toolbar, text='中文 / English', command=self.change_language)
+        self.language_label = self.label(toolbar, 'language', style='Muted.TLabel', width=8)
+        self.language_label.pack(side='right', padx=8)
+        self.languages = {'中文':'zh', 'English':'en'}
+        self.lang_combo = ttk.Combobox(toolbar, textvariable=self.language,
+                                      values=list(self.languages), state='readonly',
+                                      font=self.language_font, width=10)
+        self.lang_combo.bind('<<ComboboxSelected>>', self.change_language)
+        popdown = self.root.tk.call('ttk::combobox::PopdownWindow', self.lang_combo)
+        self.root.tk.call(popdown + '.f.l', 'configure', '-font', self.language_font)
         self.lang_combo.pack(side='right')
         ttk.Label(toolbar, text='FilmCrop', font=self.brand_font).pack(anchor='center')
         ttk.Separator(self.root).pack(fill='x')
@@ -160,7 +170,7 @@ class ModernFilmApp:
         self.format_retry_button = self.button(left, 'reopen_formats', self.open_pending_formats, state='disabled')
         self.format_retry_button.pack(fill='x', pady=(10, 0))
         ttk.Separator(content, orient='vertical').pack(side='left', fill='y')
-        self.right_panel = ttk.Frame(content, width=340, padding=(22, 22))
+        self.right_panel = ttk.Frame(content, width=340, padding=(22, 14))
         right = self.right_panel
         right.pack(side='right', fill='y'); right.pack_propagate(False)
         ttk.Separator(content, orient='vertical').pack(side='right', fill='y')
@@ -172,12 +182,14 @@ class ModernFilmApp:
         self.rotate_check = ttk.Checkbutton(right, variable=self.auto_rotate)
         self.translated_widgets.append((self.rotate_check, 'rotate'))
         self.rotate_check.pack(anchor='w', pady=(0, 6))
+        self.rotate_check.configure(width=18)
         self.border_check = ttk.Checkbutton(right, variable=self.keep_border)
         self.translated_widgets.append((self.border_check, 'border'))
         self.border_check.pack(anchor='w', pady=(0, 14))
+        self.border_check.configure(width=18)
         self.reset_button = self.button(right, 'reset', self.reset_crop)
         self.reset_button.pack(fill='x', pady=(0, 10))
-        self.note = self.label(right, 'manual_note', wraplength=290, style='Muted.TLabel', justify='left')
+        self.note = self.label(right, 'manual_note', wraplength=190, style='Muted.TLabel', justify='left')
         self.note.pack(anchor='w', pady=(0, 16))
         ttk.Separator(right).pack(fill='x', pady=(0, 20))
         self.label(right, 'export_settings', font=self.heading_font).pack(anchor='w', pady=(0, 16))
@@ -190,6 +202,7 @@ class ModernFilmApp:
             path_row.pack(fill='x')
         self.path_entry = ttk.Entry(path_row, textvariable=self.outdir, font=self.ui_font)
         self.choose_button = self.button(path_row, 'choose', self.choose_output)
+        self.choose_button.configure(width=7)
         if sys.platform == 'win32':
             self.choose_button.pack(side='right', padx=(6, 0))
             self.path_entry.pack(side='left', fill='x', expand=True)
@@ -212,10 +225,13 @@ class ModernFilmApp:
         self.status = ttk.Label(footer, style='Muted.TLabel')
         self.status.pack(side='left', fill='x', expand=True)
         self.start_button = self.button(footer, 'start', self.start, style='Primary.TButton')
+        self.start_button.configure(width=12)
         self.start_button.pack(side='right')
         self.stop_button = self.button(footer, 'stop', self.cancel, state='disabled')
+        self.stop_button.configure(width=7)
         self.stop_button.pack(side='right', padx=8)
         self.open_button = self.button(footer, 'open', self.open_output)
+        self.open_button.configure(width=10)
         self.open_button.pack(side='right')
         for widget in (self.root, self.canvas, self.listbox):
             widget.drop_target_register(DND_FILES)
@@ -232,6 +248,16 @@ class ModernFilmApp:
             if isinstance(child, ttk.Frame):
                 child._base_padding = tuple(map(int, child.cget('padding'))) if child.cget('padding') else ()
             self._capture_layout(child)
+
+    def _reserve_language_layout(self):
+        """Set stable style metrics without a second translated layout pass."""
+        if sys.platform == 'win32':
+            style = ttk.Style(self.root)
+            style.configure('TButton', padding=(6, 4))
+            style.configure('Primary.TButton', padding=(10, 5))
+            style.configure('TCombobox', padding=3)
+            style.configure('TEntry', padding=3)
+            style.configure('TCheckbutton', padding=(0, 2))
 
     @staticmethod
     def _scaled_padding(value, scale):
@@ -263,7 +289,7 @@ class ModernFilmApp:
         self._apply_font_scale()
         self.left_panel.configure(width=200 if sys.platform == 'win32' else round(265 * scale))
         self.right_panel.configure(width=280 if sys.platform == 'win32' else round(340 * scale))
-        self.note.configure(wraplength=250 if sys.platform == 'win32' else round(290 * scale))
+        self.note.configure(wraplength=190 if sys.platform == 'win32' else round(210 * scale))
         for widget, margins in self._scaled_layout:
             widget.pack_configure(**{key: self._scaled_padding(value, scale) for key, value in margins.items()})
             if isinstance(widget, ttk.Frame) and getattr(widget, '_base_padding', ()):
@@ -279,21 +305,23 @@ class ModernFilmApp:
     def _apply_font_scale(self):
         if sys.platform == 'win32':
             # Point sizes follow system DPI, never the size of the app window.
-            self.ui_font.configure(size=10)
-            self.heading_font.configure(size=12)
-            self.latin_ui_font.configure(size=10)
+            self.ui_font.configure(size=12)
+            self.heading_font.configure(size=14)
+            self.latin_ui_font.configure(size=12)
             self.brand_font.configure(size=14)
         else:
-            self.ui_font.configure(size=max(8, round(16 * self.scale)))
-            self.heading_font.configure(size=max(10, round(19 * self.scale)))
-            self.latin_ui_font.configure(size=max(8, round(16 * self.scale)))
+            self.ui_font.configure(size=max(8, round(19 * self.scale)))
+            self.heading_font.configure(size=max(10, round(22 * self.scale)))
+            self.latin_ui_font.configure(size=max(10, round(19 * self.scale)))
             self.brand_font.configure(size=max(10, round(19 * self.scale)))
 
     def refresh_language(self):
-        family = self.chinese_font if self.lang == 'zh' else self.latin_font
+        # Preserve the established control metrics while changing typography.
+        family = self.latin_font if self.lang == 'en' else self.chinese_font
         self.ui_font.configure(family=family)
         self.heading_font.configure(family=family)
         self._apply_font_scale()
+        self.language.set(next(name for name, code in self.languages.items() if code == self.lang))
         for widget, key in self.translated_widgets:
             widget.configure(text=self.tr(key))
         choices = list(FORMAT_CHOICES)
@@ -308,7 +336,7 @@ class ModernFilmApp:
         self.redraw()
 
     def change_language(self, _event=None):
-        self.lang = 'en' if self.lang == 'zh' else 'zh'
+        self.lang = self.languages[self.language.get()]
         self.refresh_language()
 
     def format_changed(self, _event=None):
@@ -394,6 +422,7 @@ class ModernFilmApp:
         path = self.paths.pop(indexes[0])
         self.boxes.pop(path, None); self.states.pop(path, None); self.records.pop(path, None)
         self.file_formats.pop(path, None)
+        self.completed.pop(path, None)
         self.current = None; self.preview_image = None
         self.update_list(); self.redraw()
         if self.paths:
@@ -403,6 +432,7 @@ class ModernFilmApp:
         if self.running: return
         self.paths.clear(); self.boxes.clear(); self.states.clear(); self.records.clear()
         self.file_formats.clear()
+        self.completed.clear()
         self.current = None; self.preview_image = None
         self.update_list(); self.redraw(); self.set_status('select')
 
@@ -505,6 +535,7 @@ class ModernFilmApp:
     def reset_crop(self):
         if self.running or self.current is None: return
         self.boxes.pop(self.current, None)
+        self.completed.pop(self.current, None)
         self.states[self.current] = 'pending'
         self.update_list(); self.redraw()
 
@@ -514,9 +545,29 @@ class ModernFilmApp:
                   self.choose_button,self.path_entry,self.rotate_check,self.border_check,self.start_button):
             w.configure(state='disabled' if busy else 'normal')
         for w in (self.format_combo,self.export_combo): w.configure(state='disabled' if busy else 'readonly')
-        self.lang_combo.configure(state='disabled' if busy else 'normal')
+        self.lang_combo.configure(state='disabled' if busy else 'readonly')
         self.stop_button.configure(state='normal' if busy else 'disabled')
         self.update_format_retry_button()
+
+    def pending_jobs(self, paths, folder, options):
+        items, signatures, effective_options = [], {}, {}
+        for path in paths:
+            effective = replace(options, format=self.file_formats.get(path, options.format)) if options.format == 'auto' else options
+            box = self.boxes.get(path)
+            try:
+                stat = path.stat()
+                signature = (stat.st_size, stat.st_mtime_ns, folder.resolve(), effective, box)
+            except OSError:
+                signature = None
+            record = self.records.get(path, {})
+            if (signature is not None and self.completed.get(path) == signature
+                    and not record.get('error') and record.get('output')
+                    and Path(record['output']).is_file()):
+                continue
+            items.append((path, box))
+            signatures[path] = signature
+            effective_options[path] = effective
+        return items, signatures, effective_options
 
     def start(self, retry_paths=None):
         if self.running: return
@@ -526,11 +577,14 @@ class ModernFilmApp:
         if not self.outdir.get().strip() or not folder.is_dir():
             messagebox.showerror(self.tr('error'), self.tr('output_required'), parent=self.root); return
         options = Options(format=self.format.get(), output_format=self.export.get(), keep_border=self.keep_border.get(), auto_rotate=self.auto_rotate.get())
+        paths = self.paths if retry_paths is None else retry_paths
+        items, self.active_signatures, self.active_options = self.pending_jobs(paths, folder, options)
+        self.batch_skipped = len(paths)-len(items)
+        if not items:
+            self.set_status('detail', self.tr('skipped_completed', count=self.batch_skipped))
+            return
         self.stop.clear(); self.set_busy(True)
-        items = [(p, self.boxes.get(p)) for p in (self.paths if retry_paths is None else retry_paths)]
         self.active_paths = [p for p, _ in items]
-        self.active_options = {p: replace(options, format=self.file_formats.get(p, options.format))
-                               if options.format == 'auto' else options for p, _ in items}
         threading.Thread(target=self.worker, args=(items, folder, options), daemon=True).start()
 
     def worker(self, items, folder, options):
@@ -573,6 +627,10 @@ class ModernFilmApp:
                     _,path,record,error = event
                     self.states[path] = 'needs_format' if record.get('requires_format') else ('failed' if error else 'done')
                     self.records[path] = record
+                    if error:
+                        self.completed.pop(path, None)
+                    else:
+                        self.completed[path] = self.active_signatures.get(path)
                     self.update_list()
                     if path == self.current: self.redraw()
                     if error: self.set_status('detail', f'{path.name}: {error}')
@@ -580,6 +638,9 @@ class ModernFilmApp:
                     _,ok,failed,remaining,report_error = event
                     self.set_busy(False)
                     self.set_status('summary', {'ok':ok,'failed':failed,'remaining':remaining})
+                    if self.batch_skipped:
+                        self.set_status('detail', self.tr('summary', ok=ok, failed=failed, remaining=remaining)
+                                        + ' · ' + self.tr('skipped_completed', count=self.batch_skipped))
                     if report_error: messagebox.showerror(self.tr('error'), report_error, parent=self.root)
                     pending = [p for p in self.active_paths if self.records.get(p, {}).get('requires_format')]
                     if pending and not self.stop.is_set(): self.ask_dark_formats(pending)
